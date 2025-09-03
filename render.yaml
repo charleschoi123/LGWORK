@@ -1,30 +1,17 @@
 services:
-- type: web
-name: cn-jobright-mvp
-env: python
-plan: free
-region: singapore
-buildCommand: "pip install -r requirements.txt"
-startCommand: "python app.py"
-autoDeploy: true
-envVars:
-- key: FLASK_ENV
-value: production
-- key: LLM_PROVIDER
-sync: false
-- key: LLM_API_KEY
-sync: false
-- key: LLM_BASE_URL
-sync: false
-- key: MODEL_NAME
-sync: false
-- key: SECRET_KEY
-sync: false
-- key: DATA_RETENTION_DAYS
-sync: false
-- key: MAX_JD_PER_RUN
-sync: false
-- key: MAX_TOKENS_PER_CALL
-sync: false
-- key: TEMPERATURE
-sync: false
+  - type: web
+    name: lgwork-api
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app -b 0.0.0.0:$PORT
+    autoDeploy: true
+    envVars:
+      - key: DEEPSEEK_API_KEY
+        sync: false        # 私密变量（你已在控制台填了也可以保留这行）
+      - key: DEEPSEEK_MODEL
+        value: deepseek-chat
+      - key: JOBS_CSV_PATH
+        value: data/jobs.csv
+      - key: TRACKER_JSON_PATH
+        value: data/tracker.json
