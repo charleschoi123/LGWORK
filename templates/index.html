@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<section class="card">
+<h2>1) 粘贴你的简历文本</h2>
+<form method="POST">
+<textarea name="resume_text" rows="10" placeholder="把中文简历文本粘贴在这里（可先从 PDF 复制为纯文本）" required></textarea>
+
+
+<h2>2) 粘贴 JD（每行一个，用“标题 | 链接 | 描述”）</h2>
+<textarea name="jd_text" rows="12" placeholder="示例：\n数据分析师 | https://www.liepin.com/job/xxxx | 负责数据建模，精通SQL、Python\n算法工程师 | https://www.zhipin.com/job_detail/xxxx | 机器学习/深度学习，熟悉PyTorch"></textarea>
+
+
+<button type="submit">开始匹配</button>
+</form>
+</section>
+{% endblock %}
