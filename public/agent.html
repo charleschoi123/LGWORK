@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>LGWORK · AI 求职副驾</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{--bg:#0b0f14;--panel:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--brand:#38bdf8}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Microsoft YaHei",sans-serif}
+    header{position:sticky;top:0;background:rgba(11,15,20,.85);backdrop-filter:blur(8px);border-bottom:1px solid #1f2937;z-index:10}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px}
+    h1{margin:0 0 6px;font-size:20px;display:flex;gap:10px;align-items:center}.dot{width:10px;height:10px;border-radius:999px;background:var(--brand);box-shadow:0 0 14px var(--brand)}
+    .grid{display:grid;grid-template-columns:340px 1fr;gap:14px}@media(max-width:980px){.grid{grid-template-columns:1fr}}
+    .panel{background:var(--card);border:1px solid #1f2937;border-radius:16px;padding:14px}
+    textarea{width:100%;min-height:220px;padding:10px;border-radius:12px;border:1px solid #29303a;background:var(--panel);color:var(--text);resize:vertical}
+    input,select,button{padding:10px 12px;border-radius:12px;border:1px solid #29303a;background:var(--panel);color:var(--text)}
+    button{cursor:pointer}
+    .primary{background:#0369a1;border-color:#0369a1}
+    .muted{color:var(--muted);font-size:12px}
+    .row{display:flex;gap:8px;flex-wrap:wrap}
+    .grid-jobs{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}@media(max-width:980px){.grid-jobs{grid-template-columns:1fr}}
+    .card{background:var(--card);border:1px solid #223047;border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px}
+    .title{font-weight:700}
+    .meta{font-size:12px;color:var(--muted);display:flex;flex-wrap:wrap;gap:6px}
+    .chips{display:flex;flex-wrap:wrap;gap:6px}.chip{font-size:12px;padding:3px 8px;border-radius:999px;background:#1f2937;border:1px solid #2a3441}
+    .ops{display:flex;gap:8px;flex-wrap:wrap}
+    .score{font-size:12px;color:#93c5fd}
+    .toast{position:fixed;right:14px;bottom:14px;background:#0f172a;border:1px solid #29303a;border-radius:12px;padding:10px 12px;display:none}
+    .result{margin-top:12px;border-top:1px dashed #334155;padding-top:10px}
+    .kpi{display:flex;gap:12px;flex-wrap:wrap}
+    .box{background:#0f172a;border:1px solid #29303a;border-radius:10px;padding:8px 10px;min-width:110px}
+    ul{margin:6px 0 0 18px}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1><span class="dot"></span>LGWORK · AI 求职副驾</h1>
+    <div class="muted">粘贴你的简历与偏好 → 推荐职位 → 对单个职位做 LLM 评估 → 一键加入“跟进”</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="grid">
+    <!-- 左侧：简历 & 偏好 -->
+    <div class="panel">
+      <div style="margin-bottom:6px">简历文本</div>
+      <textarea id="cv" placeholder="粘贴你的简历文本（或关键经历要点）"></textarea>
+      <div class="row" style="margin-top:8px">
+        <input id="kw" placeholder="关键词（逗号分隔）如：ADC, AI, 临床运营" style="flex:1"/>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <input id="loc" placeholder="地点偏好（可留空）如：上海/苏州/远程" style="flex:1"/>
+        <select id="type">
+          <option value="">类型</option><option value="full">全职</option><option value="part">兼职</option><option value="project">项目制</option>
+        </select>
+        <select id="mode">
+          <option value="">办公</option><option value="onsite">Onsite</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option>
+        </select>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="btnRec" class="primary">生成职位推荐</button>
+        <button id="btnClear">清空</button>
+      </div>
+      <div class="muted" style="margin-top:6px">说明：推荐先用本地“关键词粗评分”，点“LLM匹配”再调用 DeepSeek 精评。</div>
+    </div>
+
+    <!-- 右侧：职位推荐 + 结果面板 -->
+    <div class="panel">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div class="muted">共 <span id="count">0</span> 条推荐（按粗评分排序）</div>
+        <div>
+          <select id="limit">
+            <option value="20">显示 20</option>
+            <option value="50">显示 50</option>
+            <option value="100">显示 100</option>
+          </select>
+        </div>
+      </div>
+      <div id="jobs" class="grid-jobs" style="margin-top:10px"></div>
+
+      <div id="resPanel" class="result" style="display:none">
+        <div class="kpi">
+          <div class="box">职位：<span id="jobTitle">-</span></div>
+          <div class="box">匹配分：<span id="score">-</span></div>
+          <div class="box">Must命中/缺失：<span id="mh">-</span>/<span id="mm">-</span></div>
+          <div class="box">Nice命中/缺失：<span id="nh">-</span>/<span id="nm">-</span></div>
+        </div>
+        <div style="margin-top:8px">
+          <strong>补差建议：</strong>
+          <ul id="advice"></ul>
+        </div>
+        <div style="margin-top:8px">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <strong>定制简历要点：</strong>
+            <button id="btnCopy">复制要点</button>
+          </div>
+          <ul id="bullets"></ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  // ======= API 地址（同域可留空） =======
+  const API_BASE = '';
+  // =====================================
+
+  const els = {
+    cv: document.getElementById('cv'),
+    kw: document.getElementById('kw'),
+    loc: document.getElementById('loc'),
+    type: document.getElementById('type'),
+    mode: document.getElementById('mode'),
+    btnRec: document.getElementById('btnRec'),
+    btnClear: document.getElementById('btnClear'),
+    jobs: document.getElementById('jobs'),
+    count: document.getElementById('count'),
+    limit: document.getElementById('limit'),
+    resPanel: document.getElementById('resPanel'),
+    jobTitle: document.getElementById('jobTitle'),
+    score: document.getElementById('score'),
+    mh: document.getElementById('mh'), mm: document.getElementById('mm'),
+    nh: document.getElementById('nh'), nm: document.getElementById('nm'),
+    advice: document.getElementById('advice'),
+    bullets: document.getElementById('bullets'),
+    btnCopy: document.getElementById('btnCopy'),
+    toast: document.getElementById('toast'),
+  };
+
+  function api(url, opts={}) {
+    const base = API_BASE ? API_BASE : '';
+    return fetch(base + url, Object.assign({ headers:{'Content-Type':'application/json'} }, opts));
+  }
+  function toast(msg, err=false){ els.toast.textContent=msg; els.toast.style.display='block'; els.toast.style.borderColor=err?'#7f1d1d':'#29303a'; setTimeout(()=>els.toast.style.display='none',1800); }
+  const esc = s => (s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+  const chip = s => `<span class="chip">${esc(s)}</span>`;
+
+  async function recommend() {
+    const cv = els.cv.value.trim();
+    if (!cv) { toast('请先粘贴简历文本', true); return; }
+
+    // 拉取所有职位（分页放大一点）
+    const qs = new URLSearchParams();
+    if (els.loc.value.trim()) qs.set('location', els.loc.value.trim());
+    if (els.type.value) qs.set('type', els.type.value);
+    if (els.mode.value) qs.set('work_mode', els.mode.value);
+    qs.set('page', '1'); qs.set('page_size', '500');
+    const r = await api('/api/jobs?' + qs.toString());
+    const data = await r.json();
+    let items = data.items || [];
+
+    // 关键词数组（来自输入+简历里抽取的常见词，简单做法）
+    const kwInput = (els.kw.value || '').split(/[，,]/).map(s=>s.trim()).filter(Boolean);
+    const autoKw = Array.from(new Set((cv.toLowerCase().match(/[a-zA-Z\-+#]{3,}/g) || []).slice(0,60)));
+    const kws = new Set([...kwInput.map(s=>s.toLowerCase()), ...autoKw]);
+
+    // 简单粗评分：根据标题/公司/地点/标签/notes 命中次数
+    const scored = items.map(it=>{
+      const hay = (it.title+' '+it.company+' '+(it.location||'')+' '+(it.tags||[]).join(' ')+' '+(it.notes||'')).toLowerCase();
+      let score = 0;
+      kws.forEach(k => { if (k && hay.includes(k)) score += 1; });
+      // 小加权：匹配工作模式/类型
+      if (els.type.value && it.type === els.type.value) score += 1.5;
+      if (els.mode.value && it.work_mode === els.mode.value) score += 1.0;
+      return Object.assign({ _score: score }, it);
+    }).sort((a,b)=>b._score - a._score);
+
+    const showN = parseInt(els.limit.value || '20',10);
+    renderJobs(scored.slice(0, showN));
+    els.count.textContent = scored.length;
+  }
+
+  function renderJobs(items){
+    if (!items.length) { els.jobs.innerHTML = '<div class="muted">没有找到推荐职位</div>'; return; }
+    els.jobs.innerHTML = items.map(it=>{
+      const tags = (it.tags||[]).map(chip).join(' ');
+      const sal = (it.salary_min!=null||it.salary_max!=null) ? `${it.salary_min??''} - ${it.salary_max??''} ${it.currency||''}` : '薪资未标注';
+      return `
+        <div class="card">
+          <div class="title">${esc(it.title)}</div>
+          <div class="meta">
+            <span>${esc(it.company)}</span><span>·</span>
+            <span>${esc(it.location||'')}</span><span>·</span>
+            <span>${esc((it.work_mode||'').toUpperCase())}</span><span>·</span>
+            <span>${esc((it.type||'').toUpperCase())}</span>
+            ${it.posted_at?`<span>·</span><span>${esc(it.posted_at)}</span>`:''}
+          </div>
+          <div class="chips">${tags}</div>
+          <div class="meta"><span class="score">粗评分：${(it._score||0).toFixed(1)}</span> · <span>${esc(sal)}</span></div>
+          <div class="row ops">
+            <button onclick="openLink('${encodeURIComponent(it.jd_url||'')}')">打开原链</button>
+            <button class="primary" onclick="llmMatch('${encodeURIComponent(it.id)}')">LLM 匹配</button>
+            <button onclick="addTrack('${encodeURIComponent(it.id)}')">加入跟进</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  }
+
+  async function llmMatch(jobIdEnc){
+    const jobId = decodeURIComponent(jobIdEnc);
+    // 取该 job 的 JD 文本：用我们已有的元数据（title+tags+notes）作为 JD 文本的代理
+    // 你以后可以扩展为真正的 JD 内容
+    try{
+      const r = await api('/api/jobs?page=1&page_size=500');
+      const data = await r.json();
+      const job = (data.items||[]).find(x=>x.id===jobId);
+      if(!job){ toast('未找到该职位', true); return; }
+
+      const jdText = [
+        `Title: ${job.title}`,
+        `Company: ${job.company}`,
+        `Location: ${job.location||''}`,
+        `Work Mode: ${job.work_mode||''}, Type: ${job.type||''}`,
+        `Tags: ${(job.tags||[]).join(', ')}`,
+        `Notes: ${job.notes||''}`
+      ].join('\n');
+
+      const cv = els.cv.value.trim();
+      if (!cv) { toast('请先粘贴简历文本', true); return; }
+
+      toast('正在调用 DeepSeek 评估…');
+      const rr = await api('/api/match', { method:'POST', body: JSON.stringify({ jd_text: jdText, resume_text: cv }) });
+      const out = await rr.json();
+      if (!rr.ok || out.error){ throw new Error(out.error || ('HTTP '+rr.status)); }
+
+      // 渲染结果
+      els.resPanel.style.display = 'block';
+      els.jobTitle.textContent = job.title;
+      els.score.textContent = out.match_score ?? '-';
+      els.mh.textContent = (out.must_have_hits||[]).length;
+      els.mm.textContent = (out.must_have_misses||[]).length;
+      els.nh.textContent = (out.nice_to_have_hits||[]).length;
+      els.nm.textContent = (out.nice_to_have_misses||[]).length;
+      els.advice.innerHTML = (out.gap_advice||[]).map(s=>`<li>${esc(s)}</li>`).join('') || '<li>—</li>';
+      els.bullets.innerHTML = (out.resume_bullets||[]).map(s=>`<li>${esc(s)}</li>`).join('') || '<li>—</li>';
+      toast('评估完成');
+    }catch(e){
+      console.error(e); toast('评估失败：'+e.message, true);
+    }
+  }
+
+  async function addTrack(jobIdEnc){
+    const job_id = decodeURIComponent(jobIdEnc);
+    try{
+      const r = await api('/api/track', { method:'POST', body: JSON.stringify({ job_id, status:'准备中', notes:'' }) });
+      const d = await r.json();
+      if(!r.ok || d.error) throw new Error(d.error || ('HTTP '+r.status));
+      toast('已加入“跟进”');
+    }catch(e){ console.error(e); toast('加入失败：'+e.message, true); }
+  }
+
+  function openLink(uEnc){
+    const u = decodeURIComponent(uEnc||'');
+    if(!u){ toast('无原始链接'); return; }
+    window.open(u, '_blank');
+  }
+
+  // 复制要点
+  els.btnCopy.onclick = async ()=>{
+    const lis = els.bullets.querySelectorAll('li');
+    const txt = Array.from(lis).map(li=>'- '+li.textContent.trim()).join('\n');
+    if(!txt){ toast('没有可复制的要点', true); return; }
+    try{ await navigator.clipboard.writeText(txt); toast('已复制'); }catch{ toast('复制失败', true); }
+  };
+
+  // 事件
+  els.btnRec.onclick = recommend;
+  els.btnClear.onclick = ()=>{ els.cv.value=''; els.kw.value=''; els.loc.value=''; els.type.value=''; els.mode.value=''; els.jobs.innerHTML=''; els.count.textContent='0'; els.resPanel.style.display='none'; };
+
+</script>
+</body>
+</html>
