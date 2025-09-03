@@ -7,7 +7,7 @@ import threading
 from datetime import datetime
 from urllib.parse import unquote_plus
 
-from flask import Flask, request, jsonify, make_response
+from flask import Flask, request, jsonify, make_response, send_from_directory
 
 import requests  # 用于调用 DeepSeek
 
@@ -417,6 +417,14 @@ def version():
 # -----------------------------
 # 本地启动
 # -----------------------------
+@app.route("/public/<path:filename>", methods=["GET"])
+def public_files(filename):
+    return send_from_directory("public", filename)
+
+@app.route("/", methods=["GET"])
+def home():
+    return send_from_directory("public", "index.html")
+
 if __name__ == "__main__":
     os.makedirs(os.path.dirname(JOBS_CSV_PATH), exist_ok=True)
     os.makedirs(os.path.dirname(TRACKER_JSON_PATH), exist_ok=True)
