@@ -2,7 +2,7 @@ Flask==3.0.3
 requests==2.32.3
 python-dotenv==1.0.1
 
-# 固定科学计算库的稳定版本（Python 3.11 下有 manylinux 预编译 wheel，不需要源码编译）
+# 科学计算三件套（有 wheel，能直接装，不会编译）
 numpy==1.26.4
 scipy==1.11.4
 scikit-learn==1.4.2
