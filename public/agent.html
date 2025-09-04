@@ -2,225 +2,222 @@
 <html lang="zh-CN">
 <head>
 <meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
 <title>LGWORK · AI 求职副驾</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
-  :root{
-    --bg:#0b1220;--card:#121a2a;--muted:#94a3b8;--text:#e2e8f0;--primary:#0ea5e9;--chip:#1f2a44;
-  }
-  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;}
-  .wrap{max-width:1280px;margin:0 auto;padding:24px;}
-  h1{font-size:20px;margin:0 0 8px;display:flex;align-items:center;gap:8px}
-  .subtitle{color:var(--muted);font-size:12px;margin-bottom:16px}
-  .grid{display:grid;grid-template-columns:380px 1fr;gap:16px;align-items:start}
-  .box{background:var(--card);border:1px solid #1e293b;border-radius:12px;padding:14px}
-  .label{font-size:12px;color:var(--muted);margin-bottom:6px}
-  textarea{width:100%;min-height:220px;background:#0d1525;border:1px solid #1f2a44;border-radius:10px;color:var(--text);
-           padding:12px;outline:none}
-  input,select{background:#0d1525;border:1px solid #1f2a44;border-radius:8px;color:var(--text);padding:10px;outline:none}
-  .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
-  .btn{background:#0e7490;border:0;border-bottom:2px solid #155e75;color:#e6faff;padding:10px 14px;border-radius:10px;cursor:pointer}
-  .btn.secondary{background:#0b2447;border-color:#15325e}
-  .btn.ghost{background:transparent;border:1px dashed #1f2a44;color:#94a3b8}
-  .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:6px}
-  .chip{background:var(--chip);color:#cbd5e1;border:1px solid #2a3a62;padding:4px 9px;border-radius:999px;font-size:12px}
-  .results{min-height:480px}
-  .toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
-  .skeleton{background:#0e1729;border:1px solid #1e293b;border-radius:12px;padding:14px;margin-bottom:12px;
-            animation: breathe 1.6s ease-in-out infinite}
-  @keyframes breathe{0%{opacity:.5}50%{opacity:1}100%{opacity:.5}}
-  .card{background:#0e1729;border:1px solid #1e293b;border-radius:12px;padding:14px;margin-bottom:12px}
-  .title{font-weight:600}
-  .meta{color:#a3b3c8;font-size:12px;margin:6px 0 10px}
-  .score{display:flex;gap:10px;font-size:12px}
-  .badge{background:#0b2447;color:#a7c7ff;border:1px solid #163060;border-radius:999px;padding:3px 8px}
-  .danger{color:#fca5a5}
-  .ok{color:#86efac}
-  .profile{background:#091222;border:1px solid #1f2a44;border-radius:10px;padding:10px;margin-top:8px}
+  :root{--bg:#0b0f14;--panel:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--brand:#38bdf8}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Microsoft YaHei",sans-serif}
+  header{position:sticky;top:0;background:rgba(11,15,20,.85);backdrop-filter:blur(8px);border-bottom:1px solid #1f2937;z-index:10}
+  .wrap{max-width:1200px;margin:0 auto;padding:16px}
+  h1{margin:0 0 6px;font-size:20px;display:flex;gap:10px;align-items:center}.dot{width:10px;height:10px;border-radius:999px;background:var(--brand);box-shadow:0 0 14px var(--brand)}
+  .grid{display:grid;grid-template-columns:380px 1fr;gap:14px}@media(max-width:980px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid #1f2937;border-radius:16px;padding:14px}
+  textarea{width:100%;min-height:180px;padding:10px;border-radius:12px;border:1px solid #29303a;background:var(--panel);color:var(--text);resize:vertical}
+  input,select,button{padding:10px 12px;border-radius:12px;border:1px solid #29303a;background:var(--panel);color:var(--text)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .btn{cursor:pointer}.primary{background:#0369a1;border-color:#0369a1}
+  .muted{color:var(--muted);font-size:12px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .chip{font-size:12px;padding:4px 8px;border-radius:999px;background:#1f2937;border:1px solid #2a3441}
+  .toolbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+  .grid-jobs{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:1100px){.grid-jobs{grid-template-columns:repeat(2,1fr)}}
+  @media(max-width:740px){.grid-jobs{grid-template-columns:1fr}}
+  .card{background:#111827;border:1px solid #1f2937;border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:8px}
+  .title{font-weight:700}.meta{font-size:13px;color:#94a3b8;display:flex;flex-wrap:wrap;gap:6px}
+  .ops{display:flex;gap:8px;flex-wrap:wrap}
+  .toast{position:fixed;bottom:14px;right:14px;background:#0f172a;border:1px solid #29303a;border-radius:12px;padding:10px 12px;display:none}
+  .select{padding:8px 10px;border-radius:10px;background:#0f172a;color:var(--text);border:1px solid #29303a}
+  .empty{border:1px dashed #334155;border-radius:16px;padding:36px 12px;text-align:center;color:#94a3b8}
+  @keyframes shimmer{0%{background-position:-400px 0}100%{background-position:400px 0}}
+  .skeleton{border:1px solid #1f2937;border-radius:16px;padding:14px;background:#0f172a}
+  .sh{height:14px;margin:8px 0;background:linear-gradient(90deg,#0e1625 25%,#142033 37%,#0e1625 63%);background-size:400% 100%;animation:shimmer 1.2s ease-in-out infinite;border-radius:8px}
+  .bdot{display:inline-block;width:8px;height:8px;border-radius:50%;background:#6b7280;animation:bd 1.2s ease-in-out infinite;margin-left:6px}
+  @keyframes bd{0%,100%{opacity:.3}50%{opacity:1}}
+  .badge{padding:2px 8px;border-radius:999px;font-size:12px;border:1px solid #2a3441}
+  .ok{background:rgba(16,185,129,.12);border-color:#065f46}
+  .warn{background:rgba(245,158,11,.12);border-color:#92400e}
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>LGWORK · AI 求职副驾</h1>
-  <div class="subtitle">上传/粘贴简历 → 一键分析并推荐（画像摘要 + 关键词）→ 自动开始职位精评（可选）</div>
+<header>
+  <div class="wrap">
+    <h1><span class="dot"></span>LGWORK · AI 求职副驾</h1>
+    <div class="muted">上传/粘贴简历 → 一键分析并推荐（画像摘要 + 关键词）→ 自动开始职位精评 → 一键面试包。</div>
+  </div>
+</header>
 
+<main class="wrap">
   <div class="grid">
-    <!-- 左侧 -->
-    <div class="box">
-      <div class="label">简历文本</div>
-      <textarea id="resume" placeholder="粘贴简历或点击下方上传（支持 PDF/DOCX/TXT）"></textarea>
+    <div class="panel">
+      <div>简历文本</div>
+      <textarea id="cv" placeholder="粘贴你的简历（或核心经历要点）"></textarea>
       <div class="row" style="margin-top:8px">
-        <input type="file" id="file" />
-        <button class="btn secondary" id="btnUpload">上传并解析</button>
+        <input id="file" type="file" accept=".pdf,.docx,.txt" />
+        <button id="btnUpload" class="btn">上传并解析</button>
+        <button id="btnAR" class="btn primary">分析并推荐</button>
       </div>
-
-      <div class="label" style="margin-top:12px">关键词（可留空，系统会从简历中自动提取）</div>
-      <input id="kw" style="width:100%" placeholder="如：ADC, 抗体, 临床运营, Python, NLP">
-
-      <div class="row" style="margin-top:8px">
-        <input id="loc" placeholder="地点偏好（可留空，如：上海）" style="flex:1">
-        <select id="type">
+      <div class="row" style="margin-top:10px">
+        <input id="loc" style="flex:1" placeholder="地点（可多项：上海/苏州/远程）" />
+        <select id="type" class="select">
           <option value="">类型</option><option value="full">全职</option><option value="part">兼职</option><option value="project">项目制</option>
         </select>
-        <select id="mode">
-          <option value="">工作制</option><option value="onsite">到岗</option><option value="hybrid">混合</option><option value="remote">远程</option>
+        <select id="mode" class="select">
+          <option value="">办公</option><option value="onsite">Onsite</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option>
         </select>
       </div>
-
-      <div class="row" style="margin-top:10px;justify-content:space-between">
-        <label class="row" style="gap:6px;font-size:13px;color:#cbd5e1">
-          <input type="checkbox" id="use_llm"> 使用 LLM 精评（需已配置 DeepSeek Key）
-        </label>
-        <div class="row">
-          <button class="btn ghost" id="btnClear">清空</button>
-          <button class="btn" id="btnGo">分析并推荐</button>
-        </div>
+      <div id="summaryBox" class="muted" style="margin-top:10px;display:none">
+        <div style="margin-bottom:6px">画像摘要：</div>
+        <div id="summary" style="white-space:pre-wrap;line-height:1.6"></div>
+        <div style="margin-top:8px">关键词：</div>
+        <div id="kwChips" class="chips"></div>
       </div>
-
-      <div id="profile" class="profile" style="display:none"></div>
+      <div class="muted" style="margin-top:8px">提示：若分析服务繁忙，会自动降级为本地摘要；页面不显示任何供应商名称。</div>
     </div>
 
-    <!-- 右侧：结果 -->
-    <div class="box">
+    <div class="panel">
       <div class="toolbar">
-        <div class="label">共 <b id="count">0</b> 条推荐（按粗配分/LLM 分排序）</div>
-        <select id="pageSize">
-          <option value="20">显示 20</option>
-          <option value="50">显示 50</option>
-          <option value="100">显示 100</option>
+        <div class="muted">共 <span id="count">0</span> 条推荐（LLM 精评将自动进行）</div>
+        <select id="limit" class="select">
+          <option value="20">显示 20</option><option value="50">显示 50</option><option value="100">显示 100</option>
         </select>
       </div>
-      <div id="results" class="results"></div>
+      <div id="list" class="grid-jobs"></div>
+      <div id="empty" class="empty" style="display:none">没有结果，试试放宽筛选或补充关键词</div>
     </div>
   </div>
-</div>
+</main>
+
+<div id="toast" class="toast"></div>
 
 <script>
-const $ = (s)=>document.querySelector(s);
-const resume = $("#resume");
-const btnUpload = $("#btnUpload");
-const file = $("#file");
-const btnGo = $("#btnGo");
-const btnClear = $("#btnClear");
-const results = $("#results");
-const countEl = $("#count");
-const kw = $("#kw"), loc = $("#loc"), type = $("#type"), mode = $("#mode");
-const useLLM = $("#use_llm");
-const pageSize = $("#pageSize");
-const profileBox = $("#profile");
+const API_BASE='';
+function api(url,opts={}){return fetch((API_BASE||'')+url,opts)}
+function toast(msg,err=false){const t=document.getElementById('toast');t.textContent=msg;t.style.display='block';t.style.borderColor=err?'#7f1d1d':'#29303a';setTimeout(()=>t.style.display='none',1600)}
+const esc=s=>(s||'').toString().replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]))
+const chip=s=>`<span class="chip">${esc(s)}</span>`
 
-function toast(msg){
-  console.log(msg);
+const els={
+  cv:document.getElementById('cv'), file:document.getElementById('file'),
+  btnUpload:document.getElementById('btnUpload'), btnAR:document.getElementById('btnAR'),
+  summaryBox:document.getElementById('summaryBox'), summary:document.getElementById('summary'),
+  kwChips:document.getElementById('kwChips'), loc:document.getElementById('loc'),
+  type:document.getElementById('type'), mode:document.getElementById('mode'),
+  list:document.getElementById('list'), empty:document.getElementById('empty'),
+  limit:document.getElementById('limit'), count:document.getElementById('count')
 }
 
-function skeleton(n=6){
-  results.innerHTML="";
-  for(let i=0;i<n;i++){
-    const d=document.createElement("div");
-    d.className="skeleton";
-    d.innerHTML=`<div class="title">加载中…</div><div class="meta">正在生成推荐与画像</div>`;
-    results.appendChild(d);
-  }
-}
+;(function(){try{const c=localStorage.getItem('LGWORK_RESUME');if(c&&!els.cv.value.trim())els.cv.value=c}catch{}})()
 
-function chip(text){
-  const s=document.createElement("span");
-  s.className="chip";
-  s.textContent=text;
-  return s;
-}
-
-async function api(path, data){
-  const r = await fetch(path, {
-    method:"POST",
-    headers:{"Content-Type":"application/json"},
-    body:JSON.stringify(data||{})
-  });
-  return r.json();
-}
-
-btnUpload.onclick = async ()=>{
-  if(!file.files.length){ toast("请选择文件"); return;}
-  const fd=new FormData(); fd.append("file", file.files[0]);
-  const r = await fetch("/api/upload_resume",{method:"POST", body:fd});
-  const data = await r.json();
-  if(data.ok){ resume.value = data.text || ""; toast("解析完成"); }
-  else{ toast("解析失败"); }
-};
-
-btnClear.onclick = ()=>{
-  resume.value=""; kw.value=""; loc.value=""; type.value=""; mode.value="";
-  results.innerHTML=""; countEl.textContent="0"; profileBox.style.display="none";
-};
-
-btnGo.onclick = async ()=>{
-  const text = resume.value.trim();
-  if(!text){ toast("请先粘贴或上传简历"); return; }
-
-  // 先画像
-  profileBox.style.display="none";
-  let profile = null;
+els.btnUpload.onclick=async()=>{
+  const f=els.file.files[0]; if(!f){toast('请选择 PDF/DOCX/TXT 文件',true);return}
+  const form=new FormData(); form.append('file',f)
+  toast('正在解析简历…')
   try{
-    const prof = await api("/api/profile", {resume_text:text});
-    if(prof.ok){
-      profile = prof.profile || {};
-      const kws = (profile.keywords||[]).slice(0,12);
-      profileBox.innerHTML = `
-        <div style="color:#a3b3c8;font-size:12px;margin-bottom:6px">画像摘要</div>
-        <div style="white-space:pre-wrap">${(profile.summary||"").slice(0,400)}</div>
-        <div class="chips" id="profKw"></div>`;
-      profileBox.style.display="block";
-      const kbox = $("#profKw");
-      kws.forEach(k=>kbox.appendChild(chip(k)));
-      if(!kw.value && kws.length){ kw.value = kws.slice(0,8).join(", "); }
-    }
-  }catch(e){ /* 忽略 */ }
-
-  // 再推荐
-  skeleton(6);
-  const payload = {
-    resume_text: text,
-    keywords: kw.value,
-    location: loc.value,
-    type: type.value,
-    work_mode: mode.value,
-    use_llm: useLLM.checked,
-    topn: 10
-  };
-  const data = await api("/api/analyze_recommend", payload);
-  const items = (data.items||[]).slice(0, parseInt(pageSize.value||"20",10));
-  countEl.textContent = items.length.toString();
-  results.innerHTML="";
-
-  // 逐条插入（让等待不无聊）
-  for(let i=0;i<items.length;i++){
-    addCard(items[i]);
-    await new Promise(r=>setTimeout(r, 120)); // 轻微延迟
-  }
-};
-
-function addCard(j){
-  const c=document.createElement("div");
-  c.className="card";
-  const tags = (j.tags||[]).slice(0,6).map(t=>`<span class="chip">${t}</span>`).join(" ");
-  const rscore = j.rough_score ?? 0;
-  const lscore = (j.llm_score!=null) ? j.llm_score : null;
-  const color = lscore!=null ? (lscore>=85?"ok":"") : (rscore>=8?"ok":"");
-  const llmPart = (lscore!=null) ? `<span class="badge">LLM 分：<b class="${color}">${lscore}</b></span>` : `<span class="badge">LLM 分：评估中</span>`;
-
-  c.innerHTML = `
-    <div class="title">${escapeHtml(j.title||"未命名职位")}</div>
-    <div class="meta">${escapeHtml(j.company||"")} · ${escapeHtml(j.location||"")} · <a href="${j.jd_url||'#'}" target="_blank">原链</a></div>
-    <div class="score">
-      <span class="badge">粗配分：<b>${rscore}</b></span>
-      ${llmPart}
-    </div>
-    <div class="chips" style="margin-top:8px">${tags}</div>
-  `;
-  results.appendChild(c);
+    const r=await api('/api/upload_resume',{method:'POST',body:form}); const d=await r.json()
+    if(!r.ok||d.error) throw new Error(); els.cv.value=d.text||''; toast('解析成功')
+  }catch(e){toast('解析失败，请重试',true)}
 }
 
-function escapeHtml(s){return (s||"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));}
+els.btnAR.onclick=analyzeAndRecommend; els.limit.onchange=()=>progressiveRender(window.__lastItems__||[])
+
+async function analyzeAndRecommend(){
+  const text=els.cv.value.trim(); if(!text){toast('请先上传/粘贴简历文本',true);return}
+  const filters={location:els.loc.value.trim(),type:els.type.value,work_mode:els.mode.value}
+  showSkeleton()
+  try{
+    const r=await api('/api/analyze_recommend',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resume_text:text,filters,top_n:100})})
+    const d=await r.json(); if(!r.ok||d.error) throw new Error()
+    // 打字式第三人称摘要
+    els.summaryBox.style.display='block'; typeWriter(els.summary,d.summary_text||'',8)
+    const kws=((d.profile||{}).keywords||[]); els.kwChips.innerHTML=kws.map(chip).join('')
+    const items=d.items||[]; window.__lastItems__=items; progressiveRender(items); els.count.textContent=d.total||items.length||0
+    try{localStorage.setItem('LGWORK_RESUME',text)}catch{}
+    // 自动对“本页显示的所有卡片”批量精评（分批，避免并发过大）
+    if (items.length) {
+      const pageN = parseInt(els.limit.value || '20', 10);
+      const ids = items.slice(0, pageN).map(x => x.id);
+      batchLLMInChunks(ids, text, 70, 8);
+    }
+  }catch(e){console.error(e);toast('分析服务繁忙，请稍后再试',true);els.list.innerHTML='';els.empty.style.display='block'}
+}
+
+function showSkeleton(){
+  els.list.innerHTML=''; els.empty.style.display='none'
+  const n=parseInt(els.limit.value||'20',10), k=Math.min(n,9); let html=''
+  for(let i=0;i<k;i++){ html+=`<div class="skeleton"><div class="sh" style="width:60%"></div><div class="sh" style="width:90%"></div><div class="sh" style="width:75%"></div><div class="sh" style="width:40%"></div></div>` }
+  els.list.innerHTML=html
+}
+
+function progressiveRender(items){
+  const topN=parseInt(els.limit.value||'20',10); const arr=items.slice(0,topN)
+  els.list.innerHTML=''; els.empty.style.display=arr.length?'none':'block'; if(!arr.length) return
+  let i=0, step=6; const timer=setInterval(()=>{ els.list.insertAdjacentHTML('beforeend', arr.slice(i,i+step).map(renderCard).join('')); i+=step; if(i>=arr.length) clearInterval(timer) }, 60)
+}
+
+function renderCard(it){
+  const tags=(it.tags||[]).map(chip).join(' ')
+  const salary=fmtSalary(it.salary_min,it.salary_max,it.currency)
+  return `<div class="card" id="card-${esc(it.id)}">
+    <div class="title">${esc(it.title)}</div>
+    <div class="meta"><span>${esc(it.company)}</span><span>·</span><span>${esc(it.location||'')}</span><span>·</span><span>${esc((it.work_mode||'').toUpperCase())}</span><span>·</span><span>${esc((it.type||'').toUpperCase())}</span>${it.posted_at?`<span>·</span><span>${esc(it.posted_at)}</span>`:''}</div>
+    <div class="chips">${tags}</div>
+    ${it.jd_url?`<div>原链：<a href="${esc(it.jd_url)}" target="_blank" rel="noopener">${esc(it.jd_url)}</a></div>`:''}
+    <div id="mc-${esc(it.id)}" class="muted" style="display:none">匹配度：<span class="bdot"></span></div>
+    <div id="ms-${esc(it.id)}" class="muted">LLM 分：评估中<span class="bdot"></span></div>
+    <div class="ops" id="ops-${esc(it.id)}">
+      <button class="btn" onclick="manualLLM('${encodeURIComponent(it.id)}')">立即精评</button>
+      <button class="btn" onclick="openInterview('${encodeURIComponent(it.id)}')">面试准备包</button>
+    </div>
+  </div>`
+}
+
+function fmtSalary(min,max,cur){const ok=v=>v!==null&&v!==undefined&&v!=='';if(!ok(min)&&!ok(max))return'未标注';const a=ok(min)?Number(min):null,b=ok(max)?Number(max):null;if(a!==null&&b!==null)return`${a.toLocaleString()} - ${b.toLocaleString()} ${cur||''}`;return`${(a??b).toLocaleString()} ${cur||''}`}
+
+function typeWriter(el,text,speed=8){el.textContent='';if(!text)return;let i=0;const t=setInterval(()=>{el.textContent+=text[i++]||'';if(i>=text.length)clearInterval(t)},speed)}
+
+async function batchLLMInChunks(ids, resumeText, highlight=70, chunk=8){
+  for (let i=0; i<ids.length; i+=chunk){
+    await batchLLM(ids.slice(i, i+chunk), resumeText, highlight);
+  }
+}
+
+async function batchLLM(ids,resumeText,highlight=70){
+  try{
+    const r=await api('/api/match_batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({job_ids:ids,resume_text:resumeText,limit:ids.length})})
+    const d=await r.json(); if(!r.ok||d.error||!Array.isArray(d.results)) throw new Error()
+    for(const it of d.results){
+      const el=document.getElementById('ms-'+it.id); const mc=document.getElementById('mc-'+it.id)
+      if(!el) continue
+      if(it.error){ el.textContent='LLM 分：服务暂不可用'; if(mc) mc.style.display='none'; continue }
+      const sc=Number(it.match_score||0)
+      el.innerHTML=`LLM 分：<span class="badge ${sc>=highlight?'ok':'warn'}">${sc}</span>`
+      if(mc){ mc.style.display='block'; mc.innerHTML=`匹配度：<span class="badge ${sc>=highlight?'ok':'warn'}">${sc}</span>` }
+      if(sc>=highlight){ const ops=document.getElementById('ops-'+it.id); if(ops) ops.insertAdjacentHTML('beforeend','<span class="badge ok">推荐</span>') }
+    }
+  }catch(e){ console.warn('batch LLM failed',e) }
+}
+
+async function manualLLM(jobIdEnc){
+  const jobId=decodeURIComponent(jobIdEnc), cv=els.cv.value.trim(); if(!cv){toast('请先上传/粘贴简历',true);return}
+  const r=await api('/api/jobs?page=1&page_size=500'); const d=await r.json(); const job=(d.items||[]).find(x=>x.id===jobId); if(!job){toast('未找到该职位',true);return}
+  const jdText=[`Title: ${job.title}`,`Company: ${job.company}`,`Location: ${job.location||''}`,`Work Mode: ${job.work_mode||''}, Type: ${job.type||''}`,`Tags: ${(job.tags||[]).join(', ')}`,job.notes||''].join('\n')
+  toast('正在精评…')
+  try{
+    const rr=await api('/api/match',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({jd_text:jdText,resume_text:cv})})
+    const out=await rr.json(); if(!rr.ok||out.error) throw new Error()
+    alert(`匹配分：${out.match_score}\n\nMust 命中：${(out.must_have_hits||[]).length}；缺失：${(out.must_have_misses||[]).length}\nNice 命中：${(out.nice_to_have_hits||[]).length}；缺失：${(out.nice_to_have_misses||[]).length}\n\n补差建议：\n- ${(out.gap_advice||[]).join('\n- ')}`)
+    const el=document.getElementById('ms-'+jobId), mc=document.getElementById('mc-'+jobId)
+    if(el){const sc=Number(out.match_score||0); el.innerHTML=`LLM 分：<span class="badge ${sc>=70?'ok':'warn'}">${sc}</span>`}
+    if(mc){const sc=Number(out.match_score||0); mc.style.display='block'; mc.innerHTML=`匹配度：<span class="badge ${sc>=70?'ok':'warn'}">${sc}</span>`}
+  }catch{toast('精评服务暂不可用',true)}
+}
+
+function openInterview(jobIdEnc){
+  const jobId=decodeURIComponent(jobIdEnc); const cv=els.cv.value.trim(); if(cv) try{localStorage.setItem('LGWORK_RESUME',cv)}catch{}
+  window.location.href=`/public/interview.html?job_id=${encodeURIComponent(jobId)}`
+}
 </script>
 </body>
 </html>
