@@ -140,8 +140,7 @@
   const chip = s => `<span class="chip">${esc(s)}</span>`;
 
   async function recommend() {
-    const cv = els.cv.value.trim();
-    if (!cv) { toast('请先粘贴简历文本', true); return; }
+
 
     // 拉取所有职位（分页放大一点）
     const qs = new URLSearchParams();
@@ -271,7 +270,8 @@
   // 事件
   els.btnRec.onclick = recommend;
   els.btnClear.onclick = ()=>{ els.cv.value=''; els.kw.value=''; els.loc.value=''; els.type.value=''; els.mode.value=''; els.jobs.innerHTML=''; els.count.textContent='0'; els.resPanel.style.display='none'; };
-
+window.addEventListener('DOMContentLoaded', recommend);
+  
 </script>
 </body>
 </html>
