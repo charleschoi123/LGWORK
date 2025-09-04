@@ -6,73 +6,96 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   body{font-family:ui-sans-serif,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Microsoft YaHei";background:#0b0f14;color:#e5e7eb;margin:0}
-  .wrap{max-width:980px;margin:24px auto;padding:0 16px}
+  .wrap{max-width:900px;margin:24px auto;padding:0 16px}
   .card{background:#0f172a;border:1px solid #1f2937;border-radius:16px;padding:16px}
   textarea,input,button{width:100%;box-sizing:border-box;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #29303a;background:#111827;color:#e5e7eb}
   button{cursor:pointer;background:#0369a1;border-color:#0369a1}
   small{color:#94a3b8}
   .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr;gap:10px}
+  @media(min-width:860px){.row3{grid-template-columns:1fr 1fr}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h2>LGWORK · 公开职位采集</h2>
   <div class="card">
-    <p><b>说明：</b>当前支持 <b>Greenhouse</b>、<b>Lever</b>、<b>Workday</b> 的公开职位。</p>
-    <ul>
-      <li>Greenhouse：<code>https://boards.greenhouse.io/&lt;company_slug&gt;</code>（例：<code>figma</code>、<code>airbnb</code>）</li>
-      <li>Lever：<code>https://jobs.lever.co/&lt;company_slug&gt;</code>（例：<code>scaleai</code>）</li>
-      <li>Workday：浏览器地址一般是 <code>https://&lt;tenant&gt;.wdX.myworkdayjobs.com/.../&lt;site&gt;</code>，填 <code>tenant/site</code>（例：<code>beigene/BeiGene</code>）。</li>
-    </ul>
+    <p><b>说明：</b>支持采集 <b>Greenhouse</b>、<b>Lever</b>、<b>Workday</b> 的公开职位；<b>MokaHR</b> 为实验性尝试。<br/>
+    <small>Greenhouse/Lever 需填写 <i>slug</i>（招聘页路径名），Workday/MokaHR 直接粘贴公司招聘页 URL。</small></p>
 
     <div class="row">
       <div>
-        <label>Greenhouse slugs（逗号/空格分隔）</label>
-        <textarea id="gh" rows="6" placeholder="如：airbnb, stripe, figma, notion, databricks"></textarea>
+        <label>Greenhouse slugs（逗号分隔）</label>
+        <textarea id="gh" rows="5" placeholder="如：airbnb, stripe, figma, notion"></textarea>
       </div>
       <div>
-        <label>Lever slugs（逗号/空格分隔）</label>
-        <textarea id="lv" rows="6" placeholder="如：scaleai, notion"></textarea>
+        <label>Lever slugs（逗号分隔）</label>
+        <textarea id="lv" rows="5" placeholder="如：scaleai"></textarea>
       </div>
     </div>
 
-    <label>Workday 租户/站点（每行一个，格式 tenant/site）</label>
-    <textarea id="wd" rows="6" placeholder="如：beigene/BeiGene&#10;databricks/Databricks"></textarea>
+    <div class="row3">
+      <div>
+        <label>Workday 招聘页 URL（每行一个）</label>
+        <textarea id="wd" rows="5" placeholder="如：https://beigene.wd5.myworkdayjobs.com/en-US/BeiGene"></textarea>
+      </div>
+      <div>
+        <label>MokaHR 招聘页 URL（每行一个，实验性）</label>
+        <textarea id="mk" rows="5" placeholder="如：https://app.mokahr.com/social-recruitment/hengrui/145996#/"></textarea>
+      </div>
+    </div>
 
-    <label>Admin Token（若服务端未设置可留空）</label>
+    <label>Admin Token（若未在服务端设置可留空）</label>
     <input id="tk" placeholder="与服务端 ADMIN_TOKEN 相同" />
 
     <div class="row">
       <button id="fill">填入示例（可修改后再导入）</button>
       <button id="go">导入职位</button>
     </div>
-
     <pre id="out" style="white-space:pre-wrap;background:#0b1220;border-radius:10px;padding:10px;min-height:70px"></pre>
-    <small>导入的数据会追加到 <code>data/jobs.csv</code>。</small>
+    <small>导入的数据会追加到 <code>data/jobs.csv</code>。免费实例重部署会清空该文件，路演前再导入一次即可。</small>
   </div>
 </div>
 <script>
 const out = document.getElementById('out');
 document.getElementById('fill').onclick = ()=>{
-  document.getElementById('gh').value = 'airbnb, stripe, figma, notion, databricks';
-  document.getElementById('lv').value  = 'scaleai';
-  document.getElementById('wd').value  = 'beigene/BeiGene';
+  document.getElementById('gh').value = 'airbnb, stripe, figma, notion';
+  document.getElementById('lv').value = 'scaleai';
+  document.getElementById('wd').value = 'https://beigene.wd5.myworkdayjobs.com/en-US/BeiGene';
+  document.getElementById('mk').value = 'https://app.mokahr.com/social-recruitment/hengrui/145996#/';
 };
 document.getElementById('go').onclick = async ()=>{
   const gh = document.getElementById('gh').value.split(/[,，\s]+/).filter(Boolean);
   const lv = document.getElementById('lv').value.split(/[,，\s]+/).filter(Boolean);
-  const wd = document.getElementById('wd').value.split(/\n+/).map(s=>s.trim()).filter(Boolean)
-              .map(s=>{const [tenant,site]=s.split('/');return {tenant,site}});
+  const wd = document.getElementById('wd').value.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  const mk = document.getElementById('mk').value.split(/\n+/).map(s=>s.trim()).filter(Boolean);
   const tk = document.getElementById('tk').value.trim();
   out.textContent = '采集中…';
   try{
-    const r = await fetch('/api/ingest_ats', {
-      method:'POST',
-      headers:Object.assign({'Content-Type':'application/json'}, tk?{'X-Admin-Token':tk}:{}),
-      body: JSON.stringify({ greenhouse: gh, lever: lv, workday: wd })
-    });
-    const d = await r.json();
-    out.textContent = r.ok? `导入完成：${d.ingested||0} 条` : `失败：${d.error||'未知错误'}`;
+    // 先导入海外源（Greenhouse/Lever）
+    if(gh.length || lv.length){
+      const r1 = await fetch('/api/ingest_ats', {
+        method:'POST',
+        headers:Object.assign({'Content-Type':'application/json'}, tk?{'X-Admin-Token':tk}:{}),
+        body: JSON.stringify({ greenhouse: gh, lever: lv })
+      });
+      const d1 = await r1.json();
+      out.textContent = (r1.ok? `海外源导入：${d1.ingested||0} 条\n` : `海外源失败：${d1.error||'未知错误'}\n`);
+    }
+    // 再导入国内源（Workday/MokaHR）
+    if(wd.length || mk.length){
+      const r2 = await fetch('/api/ingest_cn_jobs', {
+        method:'POST',
+        headers:Object.assign({'Content-Type':'application/json'}, tk?{'X-Admin-Token':tk}:{}),
+        body: JSON.stringify({ workday: wd, mokahr: mk })
+      });
+      const d2 = await r2.json();
+      out.textContent += (r2.ok? `国内源导入：${d2.ingested||0} 条\n` : `国内源失败：${d2.error||'未知错误'}\n`);
+      if (d2.detail) out.textContent += JSON.stringify(d2.detail, null, 2);
+    }
+    if(!gh.length && !lv.length && !wd.length && !mk.length){
+      out.textContent = '请先填写任意一种来源的数据再导入。';
+    }
   }catch(e){ out.textContent = '请求失败，请重试'; }
 };
 </script>
