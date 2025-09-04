@@ -314,41 +314,119 @@ def admin_shortcut():
 # ------------------------------------------------------------------------------
 # 职位导入（Workday）
 # ------------------------------------------------------------------------------
+def _save_jobs(items):
+    # 若你的文件里已经有 _save_jobs，保留你原来的，别重复定义
+    import csv, os
+    os.makedirs(os.path.dirname(JOBS_CSV_PATH), exist_ok=True)
+    exists = os.path.exists(JOBS_CSV_PATH)
+    with open(JOBS_CSV_PATH, "a", newline="", encoding="utf-8-sig") as f:
+        w = csv.DictWriter(f, fieldnames=[
+            "id","title","company","location","type","work_mode","salary_min",
+            "salary_max","currency","jd_url","notes","posted_at","source","tags"
+        ])
+        if not exists:
+            w.writeheader()
+        for it in items:
+            it["tags"] = ",".join(it.get("tags") or [])
+            w.writerow(it)
+
+def _ingest_greenhouse(slug: str):
+    import requests, uuid
+    url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs?content=true"
+    items = []
+    try:
+        r = requests.get(url, timeout=20)
+        if r.status_code != 200: return []
+        data = r.json() or {}
+        for j in data.get("jobs", []):
+            items.append({
+                "id": str(uuid.uuid4()),
+                "title": j.get("title") or "",
+                "company": slug.upper(),
+                "location": (j.get("location") or {}).get("name") or "",
+                "type": "full",
+                "work_mode": "",
+                "salary_min": "", "salary_max": "", "currency": "CNY",
+                "jd_url": j.get("absolute_url") or "",
+                "notes": "",
+                "posted_at": (j.get("updated_at") or j.get("created_at") or "")[:10],
+                "source": "greenhouse",
+                "tags": [d.get("name") for d in (j.get("departments") or []) if d.get("name")]
+            })
+    except Exception:
+        return []
+    if items: _save_jobs(items)
+    return items
+
+def _ingest_lever(slug: str):
+    import requests, uuid, datetime as dt
+    url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
+    items = []
+    try:
+        r = requests.get(url, timeout=20)
+        if r.status_code != 200: return []
+        data = r.json() or []
+        for j in data:
+            loc=""
+            if isinstance(j.get("categories"), dict):
+                loc = j["categories"].get("location") or ""
+            posted=""
+            if j.get("createdAt"):
+                try:
+                    posted = dt.datetime.fromtimestamp(int(j["createdAt"])/1000).strftime("%Y-%m-%d")
+                except Exception:
+                    posted=""
+            items.append({
+                "id": str(uuid.uuid4()),
+                "title": j.get("text") or j.get("title") or "",
+                "company": slug.upper(),
+                "location": loc,
+                "type": "full",
+                "work_mode": "",
+                "salary_min": "", "salary_max": "", "currency": "CNY",
+                "jd_url": j.get("hostedUrl") or j.get("applyUrl") or "",
+                "notes": "",
+                "posted_at": posted,
+                "source": "lever",
+                "tags": [t for t in (j.get("tags") or []) if t]
+            })
+    except Exception:
+        return []
+    if items: _save_jobs(items)
+    return items
+
 @app.post("/api/ingest_ats")
 def api_ingest_ats():
     """
     JSON 示例：
     {
-      "workday_lines": "pfizer/PfizerCareers\ngsk/GSKCareers",
-      "token": "与后端 ADMIN_TOKEN 相同；若后端未配置可留空"
+      "greenhouse": ["airbnb","stripe"],
+      "lever": ["scaleai"],
+      "token": "<与服务端 ADMIN_TOKEN 相同，可留空>"
     }
-    兼容字段：workday_sites / wd；Header: X-Admin-Token 也支持。
+    Header 也可用 X-Admin-Token 传 token。
     """
     data = request.get_json(silent=True) or {}
+
     header_token = (request.headers.get("X-Admin-Token") or "").strip()
     body_token   = (data.get("token") or data.get("admin_token") or "").strip()
     client_token = header_token or body_token
-
     if ADMIN_TOKEN and client_token != ADMIN_TOKEN:
-        return json_response({"ok": False, "error": "unauthorized"}, 401)
+        return _json_response({"ok": False, "error": "unauthorized"}, 401)
 
-    wd_text  = (data.get("workday_lines") or data.get("workday_sites") or data.get("wd") or "").strip()
-    wd_lines = [ln.strip() for ln in wd_text.splitlines() if ln.strip()]
+    gh_slugs = [s.strip() for s in (data.get("greenhouse") or []) if s and s.strip()]
+    lv_slugs = [s.strip() for s in (data.get("lever") or []) if s and s.strip()]
 
-    imported, all_items = 0, []
-    for line in wd_lines:
-        if "/" not in line:
-            continue
-        tenant, site = [x.strip() for x in line.split("/", 1)]
-        try:
-            items = fetch_workday_jobs(tenant, site, max_pages=30, page_size=50)
-            imported += len(items)
-            all_items.extend(items)
-        except Exception as e:
-            print("workday import error:", line, e)
+    total, detail = 0, []
+    for s in gh_slugs:
+        got = _ingest_greenhouse(s)
+        total += len(got); detail.append({"source":"greenhouse","slug":s,"count":len(got)})
+    for s in lv_slugs:
+        got = _ingest_lever(s)
+        total += len(got); detail.append({"source":"lever","slug":s,"count":len(got)})
 
-    wrote = _append_jobs_to_csv(all_items)
-    return json_response({"ok": True, "imported": wrote})
+    return _json_response({"ok": True, "ingested": total, "detail": detail})
+
 
 # ------------------------------------------------------------------------------
 # 职位列表（分页/筛选）
