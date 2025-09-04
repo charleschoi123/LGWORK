@@ -250,6 +250,67 @@ def _call_deepseek_profile(resume_text: str):
         return {"error": f"DeepSeek API error: {str(e)}"}
 
 
+def _call_deepseek_interview(resume_text: str, job_brief: str):
+    """生成面试准备包"""
+    if not DEEPSEEK_API_KEY:
+        return {"error": "Missing DEEPSEEK_API_KEY. Please set it first."}
+
+    url = f"{DEEPSEEK_API_BASE.rstrip('/')}/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
+
+    system_prompt = (
+        "You are an interview coach. Given a candidate resume and a target job brief, "
+        "produce STRICT JSON: {company_brief:string, role_focus_points:[], must_ask_topics:[], "
+        "candidate_gaps:[], practice_questions:[{q:string, talking_points:[]}], "
+        "thirty_sec_pitch:string, research_checklist:[], followup_email:string}. "
+        "Keep items concise and China job market friendly; bilingual terms allowed. "
+        "Return JSON only."
+    )
+    user_msg = (
+        f"JOB BRIEF:\n{job_brief}\n"
+        "---------------------\n"
+        f"RESUME:\n{resume_text}\n"
+        "Return JSON only."
+    )
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_msg},
+        ],
+        "temperature": 0.3,
+    }
+    try:
+        r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=60)
+        r.raise_for_status()
+        data = r.json()
+        content = ""
+        if isinstance(data, dict):
+            choices = data.get("choices") or []
+            if choices:
+                content = choices[0].get("message", {}).get("content", "") or ""
+        parsed = _extract_json(content)
+        if not isinstance(parsed, dict):
+            return {"error": "LLM returned non-JSON.", "raw": content}
+        # 兜底字段
+        skeleton = {
+            "company_brief": "", "role_focus_points": [], "must_ask_topics": [],
+            "candidate_gaps": [], "practice_questions": [], "thirty_sec_pitch": "",
+            "research_checklist": [], "followup_email": ""
+        }
+        for k, v in skeleton.items():
+            parsed.setdefault(k, v)
+        # 题目结构兜底
+        if isinstance(parsed.get("practice_questions"), list):
+            parsed["practice_questions"] = [
+                {"q": (x.get("q") if isinstance(x, dict) else str(x)), "talking_points": (x.get("talking_points") if isinstance(x, dict) else [])}
+                for x in parsed["practice_questions"]
+            ]
+        return parsed
+    except requests.exceptions.RequestException as e:
+        return {"error": f"DeepSeek API error: {str(e)}"}
+
+
 # -----------------------------
 # 路由：职位列表 + 过滤
 # -----------------------------
@@ -474,6 +535,50 @@ def api_match():
 
 
 # -----------------------------
+# 路由：面试准备（简历 + job / job_id）
+# -----------------------------
+@app.route("/api/interview", methods=["POST", "OPTIONS"])
+def api_interview():
+    if request.method == "OPTIONS":
+        return _json_response({"ok": True})
+
+    body = request.get_json(silent=True) or {}
+    resume_text = (body.get("resume_text") or "").strip()
+    job = body.get("job") or {}
+    job_id = (body.get("job_id") or "").strip()
+
+    if not resume_text:
+        return _json_response({"error": "resume_text is required."}, 400)
+
+    # 若提供 job_id，用本地职位库补齐 job brief
+    if job_id and not job:
+        jobs = _read_jobs()
+        job = next((x for x in jobs if x.get("id") == job_id), {})
+
+    # 组合 job brief（不从外网抓取，只用本地元数据）
+    job_brief = []
+    if job:
+        job_brief.append(f"Title: {job.get('title','')}")
+        job_brief.append(f"Company: {job.get('company','')}")
+        job_brief.append(f"Location: {job.get('location','')}")
+        job_brief.append(f"Work Mode: {job.get('work_mode','')}, Type: {job.get('type','')}")
+        tags = job.get("tags") or []
+        if tags: job_brief.append("Tags: " + ", ".join(tags))
+        if job.get("notes"): job_brief.append("Notes: " + job.get("notes",""))
+        if job.get("jd_url"): job_brief.append("JD URL: " + job.get("jd_url",""))
+    else:
+        # 允许只传自定义 brief
+        custom = (body.get("job_brief") or "").strip()
+        if custom:
+            job_brief.append(custom)
+
+    jb = "\n".join([x for x in job_brief if x])
+
+    result = _call_deepseek_interview(resume_text, jb)
+    return _json_response(result)
+
+
+# -----------------------------
 # 路由：轻量投递/跟进
 # -----------------------------
 def _ensure_tracker():
@@ -564,7 +669,7 @@ def health():
 def version():
     return _json_response({
         "name": "LGWORK API",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "jobs_csv": JOBS_CSV_PATH,
         "model": DEEPSEEK_MODEL
     })
