@@ -1,547 +1,638 @@
-import os
-import re
-import csv
-import json
-import uuid
-import time
-import threading
+import os, csv, json, uuid, time, re
 from datetime import datetime
 from urllib.parse import unquote_plus
 
-from flask import Flask, request, jsonify, make_response, send_from_directory
 import requests
-from werkzeug.utils import secure_filename
-from pdfminer.high_level import extract_text as pdf_extract_text
-from docx import Document
+from flask import Flask, request, jsonify, make_response, send_from_directory
+
+# =========================
+# 配置
+# =========================
 
 app = Flask(__name__)
 
-# =========================
-# Config
-# =========================
-JOBS_CSV_PATH     = os.environ.get("JOBS_CSV_PATH", "data/jobs.csv")
-TRACKER_JSON_PATH = os.environ.get("TRACKER_JSON_PATH", "data/tracker.json")
+VERSION = "0.5.0"
 
-DEEPSEEK_API_BASE = os.environ.get("DEEPSEEK_API_BASE", "https://api.deepseek.com")
-DEEPSEEK_API_KEY  = os.environ.get("DEEPSEEK_API_KEY", "")
-DEEPSEEK_MODEL    = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
 
-ADMIN_TOKEN       = os.environ.get("ADMIN_TOKEN", "")   # 采集接口可选保护
-UPLOAD_DIR        = os.environ.get("UPLOAD_DIR", "/tmp/uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
+JOBS_CSV_PATH = os.environ.get("JOBS_CSV_PATH", os.path.join(DATA_DIR, "jobs.csv"))
+TRACKER_JSON_PATH = os.environ.get("TRACKER_JSON_PATH", os.path.join(DATA_DIR, "tracker.json"))
 
-_tracker_lock = threading.Lock()
-_csv_lock     = threading.Lock()
+# DeepSeek / LLM 兼容读取
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY") or os.environ.get("LLM_API_KEY") or ""
+DEEPSEEK_API_BASE = (os.environ.get("DEEPSEEK_API_BASE") or os.environ.get("LLM_BASE_URL") or "https://api.deepseek.com").rstrip("/")
+DEEPSEEK_MODEL = os.environ.get("DEEPSEEK_MODEL") or os.environ.get("MODEL_NAME") or "deepseek-chat"
 
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
 
 # =========================
-# Utils
+# 通用工具
 # =========================
-def _parse_date(s):
-    if not s: return None
-    for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S"):
-        try: return datetime.strptime(s.strip(), fmt)
-        except Exception: pass
-    try: return datetime.fromisoformat(s.strip())
-    except Exception: return None
+
+def _json_response(data, status=200):
+    resp = make_response(jsonify(data), status)
+    resp.headers["Content-Type"] = "application/json; charset=utf-8"
+    return resp
 
 def _safe_float(x):
-    try: return float(x)
-    except Exception: return None
+    try:
+        if x is None or x == "":
+            return None
+        return float(x)
+    except:
+        return None
 
-def _ensure_jobs_csv(headers):
-    os.makedirs(os.path.dirname(JOBS_CSV_PATH), exist_ok=True)
+def _ensure_jobs_csv_exists():
     if not os.path.exists(JOBS_CSV_PATH):
-        with open(JOBS_CSV_PATH, "w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=headers)
-            writer.writeheader()
+        # 写入一个空文件头
+        fields = [
+            "id","company","title","location","type","work_mode","currency",
+            "salary_min","salary_max","posted_at","jd_url","source","tags","notes"
+        ]
+        with open(JOBS_CSV_PATH, "w", encoding="utf-8-sig", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fields)
+            w.writeheader()
 
 def _read_jobs():
+    """
+    从 CSV 读取职位
+    """
+    _ensure_jobs_csv_exists()
     jobs = []
-    if not os.path.exists(JOBS_CSV_PATH): return jobs
     with open(JOBS_CSV_PATH, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
-            item = {
-                "id": (row.get("id") or "").strip() or str(uuid.uuid4()),
-                "title": (row.get("title") or "").strip(),
+            jobs.append({
+                "id": row.get("id") or str(uuid.uuid4()),
                 "company": (row.get("company") or "").strip(),
+                "title": (row.get("title") or "").strip(),
                 "location": (row.get("location") or "").strip(),
-                "work_mode": (row.get("work_mode") or "").strip().lower(),  # onsite/hybrid/remote
-                "type": (row.get("type") or "").strip().lower(),           # full/part/project
-                "tags": [],
+                "type": (row.get("type") or "").strip(),
+                "work_mode": (row.get("work_mode") or "").strip(),
+                "currency": (row.get("currency") or "").strip(),
                 "salary_min": _safe_float(row.get("salary_min")),
                 "salary_max": _safe_float(row.get("salary_max")),
-                "currency": (row.get("currency") or "").strip().upper(),
-                "jd_url": (row.get("jd_url") or "").strip(),
                 "posted_at": (row.get("posted_at") or "").strip(),
+                "jd_url": (row.get("jd_url") or "").strip(),
                 "source": (row.get("source") or "").strip(),
+                "tags": json.loads(row.get("tags") or "[]") if isinstance(row.get("tags"), str) else [],
                 "notes": (row.get("notes") or "").strip(),
-            }
-            raw_tags = row.get("tags") or ""
-            pieces = []
-            for sep in [";", ","]:
-                pieces += [t.strip() for t in raw_tags.split(sep)]
-            item["tags"] = sorted(list({t for t in pieces if t}))
-
-            dt = _parse_date(item["posted_at"])
-            item["_posted_ts"] = int(dt.timestamp()) if dt else 0
-            jobs.append(item)
+            })
     return jobs
 
-def _extract_text_from_file(path: str, ext: str) -> str:
-    ext = (ext or "").lower()
-    text = ""
-    if ext == ".pdf":
-        text = pdf_extract_text(path) or ""
-    elif ext == ".docx":
-        doc = Document(path)
-        text = "\n".join(p.text for p in doc.paragraphs)
-    elif ext == ".txt":
-        with open(path, "r", encoding="utf-8", errors="ignore") as f:
-            text = f.read()
-    text = "\n".join(line.strip() for line in (text or "").splitlines() if line.strip())
-    return text[:80000]
+def _append_jobs_to_csv(items):
+    """
+    追加写入 CSV（items 为标准字段的列表）
+    """
+    if not items:
+        return
+    _ensure_jobs_csv_exists()
+    fields = [
+        "id","company","title","location","type","work_mode","currency",
+        "salary_min","salary_max","posted_at","jd_url","source","tags","notes"
+    ]
+    with open(JOBS_CSV_PATH, "a", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=fields)
+        for it in items:
+            row = dict(it)
+            # json 序列化 tags
+            row["tags"] = json.dumps(row.get("tags") or [], ensure_ascii=False)
+            w.writerow(row)
 
-def _allow_cors(resp):
-    resp.headers["Access-Control-Allow-Origin"] = "*"
-    resp.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Admin-Token"
-    resp.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS, PATCH"
-    return resp
+# =========================
+# LLM 调用（DeepSeek）
+# =========================
 
-@app.after_request
-def after_request(resp): return _allow_cors(resp)
-
-def _json_response(data, status=200):
-    resp = make_response(jsonify(data), status);  return _allow_cors(resp)
-
-def _extract_json(text):
-    if not text: return None
-    t = text.strip()
-    if t.startswith("```"):
-        t = t.strip("`").replace("json\n", "", 1).replace("json\r\n", "", 1)
-    try:
-        return json.loads(t.strip())
-    except Exception:
-        try:
-            l = t.find("{"); r = t.rfind("}")
-            if l != -1 and r != -1 and r > l: return json.loads(t[l:r+1])
-        except Exception:
-            return None
-    return None
-
-def _llm_unavailable():
-    return {"error": "LLM 服务暂不可用，请稍后再试。"}
-
-# ========= LLM =========
-def _call_deepseek(messages, temperature=0.3, timeout=60):
+def _call_deepseek(messages, temperature=0.2, timeout=30):
+    """
+    调用 DeepSeek Chat Completions
+    """
     if not DEEPSEEK_API_KEY:
-        return {"ok": False, "content": None}
-    url = f"{DEEPSEEK_API_BASE.rstrip('/')}/v1/chat/completions"
-    headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
-    payload = {"model": DEEPSEEK_MODEL, "messages": messages, "temperature": temperature}
+        return {"ok": False, "error": "missing_api_key"}
+
+    url = f"{DEEPSEEK_API_BASE}/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {DEEPSEEK_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": DEEPSEEK_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": False
+    }
     try:
-        r = requests.post(url, headers=headers, data=json.dumps(payload), timeout=timeout)
-        r.raise_for_status()
+        r = requests.post(url, headers=headers, json=payload, timeout=timeout)
+        if r.status_code != 200:
+            return {"ok": False, "error": f"status_{r.status_code}", "detail": r.text[:500]}
         data = r.json()
-        content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "") or ""
+        content = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
         return {"ok": True, "content": content}
+    except Exception as e:
+        return {"ok": False, "error": "exception", "detail": str(e)[:400]}
+
+# =========================
+# 简历解析
+# =========================
+
+def _extract_text_from_pdf(file_stream):
+    try:
+        from pdfminer.high_level import extract_text
+        return extract_text(file_stream)
     except Exception:
-        return {"ok": False, "content": None}
+        return ""
 
-def _call_profile(resume_text: str):
-    sys = (
-        "You are a career analyst. Given a resume, output STRICT JSON with fields: "
-        "{headline:string, summary:string(<=150 Chinese chars if zh, <=500 English chars if en), "
-        "strengths:[], target_roles:[], industries:[], skills_core:[], skills_nice:[], locations:[], "
-        "salary_hint:string, improvements:[], keywords:[10-25 tokens]} Return JSON only."
-    )
-    res = _call_deepseek([
-        {"role":"system","content":sys},
-        {"role":"user","content":f"RESUME:\n{resume_text}\nReturn JSON only."}
-    ])
-    if not res["ok"]:
-        # 兜底：启发式摘要+关键词
-        kws = _heuristic_keywords(resume_text, top_k=18)
-        summary = _heuristic_summary(resume_text, kws)
-        return {
-            "headline":"", "summary": summary, "strengths":[], "target_roles":[],
-            "industries":[], "skills_core":[], "skills_nice":[], "locations":[],
-            "salary_hint":"", "improvements":[], "keywords": kws
-        }
-    parsed = _extract_json(res["content"]) or {}
-    for k,v in {
-        "headline":"", "summary":"", "strengths":[], "target_roles":[],
-        "industries":[], "skills_core":[], "skills_nice":[], "locations":[],
-        "salary_hint":"", "improvements":[], "keywords":[]
-    }.items():
-        parsed.setdefault(k,v)
-    return parsed
+def _extract_text_from_docx(file_stream):
+    try:
+        from docx import Document
+        import io
+        doc = Document(io.BytesIO(file_stream.read()))
+        paras = [p.text for p in doc.paragraphs]
+        return "\n".join([p for p in paras if p and p.strip()])
+    except Exception:
+        return ""
 
-def _call_match(resume_text: str, jd_text: str):
-    sys = (
-        "You are an expert job-matching assistant. Carefully read the JD (must-have & nice-to-have) "
-        "and the candidate resume, then return STRICT JSON with fields: "
-        "{match_score:int(0-100), must_have_hits:[], must_have_misses:[], "
-        "nice_to_have_hits:[], nice_to_have_misses:[], gap_advice:[], resume_bullets:[]}. "
-        "Keep concise and actionable."
-    )
-    res = _call_deepseek([
-        {"role":"system","content":sys},
-        {"role":"user","content":f"JD:\n{jd_text}\n---------------------\nRESUME:\n{resume_text}\nReturn JSON only."}
-    ], temperature=0.2, timeout=80)
-    if not res["ok"]:
-        return _llm_unavailable()
-    parsed = _extract_json(res["content"]) or {}
-    for k,v in {
-        "match_score":0,"must_have_hits":[],"must_have_misses":[],
-        "nice_to_have_hits":[],"nice_to_have_misses":[],
-        "gap_advice":[],"resume_bullets":[]
-    }.items(): parsed.setdefault(k,v)
-    return parsed
-
-# 关键词/摘要兜底
-def _heuristic_keywords(text: str, top_k: int = 20):
-    text = (text or "")
-    words = re.findall(r"[A-Za-z][A-Za-z0-9+\-#]{2,}", text)
-    words += re.findall(r"[一-龥]{2,6}", text)
-    seen, out = set(), []
-    for w in words:
-        lw = w.lower()
-        if lw not in seen:
-            seen.add(lw); out.append(w)
-        if len(out) >= 80: break
-    return out[:top_k]
-
-def _heuristic_summary(text: str, kws):
-    kws = [k for k in (kws or [])][:8]
-    if not text.strip(): return "候选人背景信息待补充。"
-    return f"候选人具备：{ '、'.join(kws) } 等相关能力与经历，综合背景匹配生物医药/科技方向岗位。"
-
-# 严格一点的粗评分
-def _coarse_score(it, kw, filters):
-    hay_title   = (it.get("title","") or "").lower()
-    hay_company = (it.get("company","") or "").lower()
-    hay_loc     = (it.get("location","") or "").lower()
-    hay_tags    = " ".join((it.get("tags") or [])).lower()
-    hay_notes   = (it.get("notes","") or "").lower()
-    hay_all     = " ".join([hay_title, hay_company, hay_loc, hay_tags, hay_notes])
-
-    s = 0.0
-    for k in kw:
-        if not k: continue
-        # 更严格：标题/标签 > 其他
-        if k in hay_title: s += 3.5
-        if k in hay_tags:  s += 2.2
-        if k in hay_company: s += 1.0
-        if k in hay_notes: s += 0.8
-        if k in hay_loc:   s += 0.7
-        if k in hay_all:   s += 0.3
-
-    if filters.get("type") and it.get("type") == filters.get("type"):           s += 1.0
-    if filters.get("work_mode") and it.get("work_mode") == filters.get("work_mode"): s += 0.8
-    return round(s, 2)
-
+def _extract_text_from_upload(file_storage):
+    name = (file_storage.filename or "").lower()
+    if name.endswith(".pdf"):
+        return _extract_text_from_pdf(file_storage.stream)
+    if name.endswith(".docx"):
+        file_storage.stream.seek(0)
+        return _extract_text_from_docx(file_storage)
+    # 纯文本
+    try:
+        file_storage.stream.seek(0)
+        return file_storage.stream.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
 
 # =========================
-# APIs
+# 画像 & 摘要
 # =========================
 
-# 职位列表（含多城市 OR）
-@app.route("/api/jobs", methods=["GET", "OPTIONS"])
+PROFILE_SYS = (
+    "你是一名资深猎头顾问，擅长从简历中提取候选人的画像、优势、关键词与目标岗位方向。"
+    "请用简洁中文输出一个【100~180字】的第三人称摘要（像写候选人介绍），"
+    "并给出 8~12 个关键技能/领域关键词（短词），用 JSON 返回："
+    '{"summary":"...", "keywords":["..."]}'
+)
+
+def _profile_from_resume(text):
+    if not text.strip():
+        return {"summary":"", "keywords":[]}
+    res = _call_deepseek([
+        {"role":"system","content":PROFILE_SYS},
+        {"role":"user","content":text[:5000]}
+    ], temperature=0.2, timeout=40)
+    if not res["ok"]:
+        # 兜底：简单规则
+        words = list({w.strip(",.;:()[] ") for w in re.findall(r"[A-Za-z\u4e00-\u9fa5\-\+/#]{2,20}", text) if len(w)>1})
+        return {"summary": text.strip().split("\n",1)[0][:140], "keywords": words[:10]}
+    # 尝试解析 JSON
+    content = res.get("content") or ""
+    m = re.search(r'\{.*\}', content, flags=re.S)
+    if not m:
+        return {"summary": content.strip()[:180], "keywords":[]}
+    try:
+        data = json.loads(m.group(0))
+        return {"summary": (data.get("summary") or "")[:200], "keywords": data.get("keywords") or []}
+    except:
+        return {"summary": content.strip()[:180], "keywords":[]}
+
+# =========================
+# LLM 职位精评
+# =========================
+
+MATCH_SYS = (
+    "你是资深招聘顾问，请根据职位 JD 与候选人简历进行人岗匹配评估，"
+    "给出 0~100 的整数分（越高越匹配），并列出 Must-have 和 Nice-to-have 的命中/缺失项，"
+    "最后给出 2-4 条补差建议。用 JSON 返回："
+    '{"match_score":85,"must_have_hits":["A"],"must_have_misses":["B"],'
+    '"nice_to_have_hits":["C"],"nice_to_have_misses":["D"],"gap_advice":["建议1","建议2"]}'
+)
+
+def _llm_match(jd_text, resume_text, timeout=60):
+    if not DEEPSEEK_API_KEY:
+        # 兜底：关键词重叠简单评分
+        s1 = set(re.findall(r"[A-Za-z\u4e00-\u9fa5\-+#]{2,20}", jd_text.lower()))
+        s2 = set(re.findall(r"[A-Za-z\u4e00-\u9fa5\-+#]{2,20}", resume_text.lower()))
+        inter = len(s1 & s2)
+        score = min(100, 20 + inter)
+        return {"ok": True, "match_score": score}
+    prompt = f"【职位JD】\n{jd_text[:5000]}\n\n【候选人简历】\n{resume_text[:5000]}\n"
+    res = _call_deepseek([
+        {"role":"system","content":MATCH_SYS},
+        {"role":"user","content":prompt}
+    ], temperature=0.2, timeout=timeout)
+    if not res["ok"]:
+        return {"ok": False, "error": res.get("error")}
+    content = res.get("content") or ""
+    m = re.search(r'\{.*\}', content, flags=re.S)
+    try:
+        data = json.loads(m.group(0) if m else content)
+    except:
+        data = {"match_score": 0}
+    data["ok"] = True
+    data["match_score"] = int(float(data.get("match_score") or 0))
+    return data
+
+# =========================
+# ATS 采集函数
+# =========================
+
+def _fetch_greenhouse_jobs(slug: str):
+    """
+    Greenhouse 公开接口：
+    https://boards-api.greenhouse.io/v1/boards/{slug}/jobs
+    """
+    items = []
+    if not slug:
+        return items
+    url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
+    try:
+        r = requests.get(url, timeout=25)
+        if r.status_code != 200:
+            return items
+        data = r.json()
+        for j in data.get("jobs", []):
+            items.append({
+                "id": str(uuid.uuid4()),
+                "company": j.get("company",{}).get("name") or slug,
+                "title": j.get("title") or "",
+                "location": (j.get("location",{}) or {}).get("name",""),
+                "type": "", "work_mode":"", "currency":"",
+                "salary_min": None, "salary_max": None,
+                "posted_at": (j.get("updated_at") or "")[:10],
+                "jd_url": j.get("absolute_url") or "",
+                "source": "greenhouse",
+                "tags": [], "notes": ""
+            })
+    except Exception:
+        pass
+    return items
+
+def _fetch_lever_jobs(slug: str):
+    """
+    Lever 公开接口：
+    https://api.lever.co/v0/postings/{slug}?mode=json
+    """
+    items = []
+    if not slug:
+        return items
+    url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
+    try:
+        r = requests.get(url, timeout=25)
+        if r.status_code != 200:
+            return items
+        for j in r.json():
+            # locations 可能为数组
+            locs = j.get("categories", {}).get("location") or ""
+            items.append({
+                "id": str(uuid.uuid4()),
+                "company": slug,
+                "title": j.get("text") or "",
+                "location": locs,
+                "type": "", "work_mode":"", "currency":"",
+                "salary_min": None, "salary_max": None,
+                "posted_at": (j.get("createdAt") and datetime.utcfromtimestamp(int(j["createdAt"])/1000).strftime("%Y-%m-%d")) or "",
+                "jd_url": j.get("hostedUrl") or j.get("applyUrl") or "",
+                "source": "lever",
+                "tags": [], "notes": ""
+            })
+    except Exception:
+        pass
+    return items
+
+def _fetch_workday_jobs(tenant: str, site: str, max_pages: int = 20):
+    """
+    采集 Workday 的公开职位（不登录，走官方 JSON 接口）。
+    tenant/site 例如：beigene / BeiGene
+    Workday 的域名分区不固定，常见 wd5/wd3/wd1... 这里会轮询尝试。
+    """
+    tenant = (tenant or "").strip()
+    site = (site or "").strip()
+    if not tenant or not site:
+        return []
+
+    zones = ["wd5","wd3","wd1","wd2","wd4","wd8","wd9","wd6","wd7"]
+    session = requests.Session()
+    headers = {
+        "Accept": "application/json, text/plain, */*",
+        "Content-Type": "application/json",
+        "Origin": f"https://{tenant}.wd5.myworkdayjobs.com",
+        "Referer": f"https://{tenant}.wd5.myworkdayjobs.com/en-US/{site}",
+        "User-Agent": "Mozilla/5.0"
+    }
+
+    base = None
+    for z in zones:
+        test = f"https://{tenant}.{z}.myworkdayjobs.com/wday/cxs/{tenant}/{site}/jobs"
+        try:
+            t = session.post(test, headers=headers, json={"limit":1,"offset":0,"searchText":""}, timeout=15)
+            if t.ok and t.headers.get("content-type","").startswith("application/json"):
+                base = test  # 成功即用该分区
+                break
+        except Exception:
+            pass
+    if not base:
+        return []
+
+    out = []
+    offset = 0
+    limit = 50
+    for _ in range(max_pages):
+        try:
+            r = session.post(base, headers=headers, json={"limit":limit,"offset":offset,"searchText":""}, timeout=20)
+            if not r.ok:
+                break
+            data = r.json()
+            posts = data.get("jobPostings") or []
+            if not posts:
+                break
+            for p in posts:
+                title = (p.get("title") or "").strip()
+                locations = ", ".join([(x.get("descriptor") or "").strip() for x in (p.get("locations") or []) if x.get("descriptor")])
+                posted = (p.get("postedOn") or "").strip()
+                tt = (p.get("timeType") or "").lower()
+                path = p.get("externalPath") or p.get("externalUrl") or ""
+                jd_url = f"https://{tenant}.wd5.myworkdayjobs.com{path}" if path.startswith("/") else path
+                out.append({
+                    "id": str(uuid.uuid4()),
+                    "company": site,
+                    "title": title,
+                    "location": locations,
+                    "type": "full" if "full" in tt else ("part" if "part" in tt else ""),
+                    "work_mode": "",
+                    "currency": "",
+                    "salary_min": None,
+                    "salary_max": None,
+                    "posted_at": posted,
+                    "jd_url": jd_url,
+                    "source": "workday",
+                    "tags": [],
+                    "notes": ""
+                })
+            if len(posts) < limit:
+                break
+            offset += limit
+        except Exception:
+            break
+    return out
+
+# =========================
+# 路由：健康/版本/静态
+# =========================
+
+@app.route("/health")
+def health():
+    return _json_response({"status":"ok","time": int(time.time())})
+
+@app.route("/version")
+def version():
+    return _json_response({"version": VERSION})
+
+@app.route("/public/<path:filename>")
+def public_files(filename):
+    return send_from_directory("public", filename)
+
+# =========================
+# 路由：职位列表
+# =========================
+
+@app.route("/api/jobs", methods=["GET"])
 def api_jobs():
-    if request.method == "OPTIONS": return _json_response({"ok": True})
-    jobs = _read_jobs()
+    page = int(request.args.get("page", 1))
+    page_size = int(request.args.get("page_size", 20))
+    location = (request.args.get("location") or "").strip()
+    type_ = (request.args.get("type") or "").strip().lower()      # full/part/project
+    work_mode = (request.args.get("work_mode") or "").strip().lower()  # onsite/hybrid/remote
+    sort_posted_desc = request.args.get("sort_posted_desc")
 
-    q = (request.args.get("q") or "").strip().lower()
-    location_raw = (request.args.get("location") or "").strip().lower()
-    loc_tokens = [t for t in re.split(r"[,\s/，、]+", location_raw) if t]
+    items = _read_jobs()
 
-    type_ = (request.args.get("type") or "").strip().lower()
-    work_mode = (request.args.get("work_mode") or "").strip().lower()
-    tag = (request.args.get("tag") or "").strip().lower()
-    min_salary = _safe_float(request.args.get("min_salary"))
-    max_salary = _safe_float(request.args.get("max_salary"))
-    currency = (request.args.get("currency") or "").strip().upper()
+    # 过滤
+    out = []
+    for it in items:
+        if location and location not in (it.get("location") or ""):
+            continue
+        if type_ and type_ != (it.get("type") or "").lower():
+            continue
+        if work_mode and work_mode != (it.get("work_mode") or "").lower():
+            continue
+        out.append(it)
 
-    sort = (request.args.get("sort") or "posted_desc").strip().lower()
-    page = max(1, int(request.args.get("page", "1") or 1))
-    page_size = min(100, max(1, int(request.args.get("page_size", "20") or 20)))
+    # 排序（按 posted_at 降序）
+    if sort_posted_desc is not None:
+        def _dt(s):
+            try:
+                return datetime.strptime(s[:10], "%Y-%m-%d")
+            except:
+                return datetime.min
+        out.sort(key=lambda x: _dt(x.get("posted_at") or ""), reverse=True)
 
-    def match(item):
-        if q:
-            hay = " ".join([
-                item.get("title",""), item.get("company",""), item.get("location",""),
-                " ".join(item.get("tags",[]) or []), item.get("notes","")
-            ]).lower()
-            if q not in hay: return False
-        if loc_tokens:
-            loc_field = (item.get("location","") or "").lower()
-            if not any(tok in loc_field for tok in loc_tokens): return False
-        if type_ and item.get("type") != type_: return False
-        if work_mode and item.get("work_mode") != work_mode: return False
-        if currency and (item.get("currency") or "") != currency: return False
-        if tag:
-            want = {t.strip() for t in tag.split(",") if t.strip()}
-            have = {t.lower() for t in (item.get("tags") or [])}
-            if not (want & have): return False
-        if min_salary is not None or max_salary is not None:
-            smin = item.get("salary_min"); smax = item.get("salary_max")
-            if smin is not None or smax is not None:
-                lo = smin if smin is not None else smax
-                hi = smax if smax is not None else smin
-                want_lo = min_salary if min_salary is not None else -1e18
-                want_hi = max_salary if max_salary is not None else 1e18
-                if not (hi >= want_lo and lo <= want_hi): return False
-        return True
-
-    filtered = [x for x in jobs if match(x)]
-    if sort == "posted_asc":
-        filtered.sort(key=lambda x: x.get("_posted_ts", 0))
-    else:
-        filtered.sort(key=lambda x: x.get("_posted_ts", 0), reverse=True)
-
-    total = len(filtered)
+    total = len(out)
     start = (page - 1) * page_size
     end = start + page_size
-    data = filtered[start:end]
-    for it in data: it.pop("_posted_ts", None)
-    return _json_response({"total": total, "page": page, "page_size": page_size, "items": data})
+    return _json_response({"items": out[start:end], "page": page, "page_size": page_size, "total": total})
 
+# =========================
+# 路由：上传简历 → 文本
+# =========================
 
-# 上传简历 → 文本
-@app.route("/api/upload_resume", methods=["POST", "OPTIONS"])
+@app.route("/api/upload_resume", methods=["POST"])
 def api_upload_resume():
-    if request.method == "OPTIONS": return _json_response({"ok": True})
-    if "file" not in request.files: return _json_response({"error": "未接收到文件"}, 400)
+    if "file" not in request.files:
+        return _json_response({"error":"missing_file"}, 400)
     f = request.files["file"]
-    if not f or not f.filename: return _json_response({"error": "空文件"}, 400)
+    text = _extract_text_from_upload(f)
+    return _json_response({"text": text})
 
-    filename = secure_filename(f.filename)
-    ext = os.path.splitext(filename)[1].lower()
-    if ext not in [".pdf", ".docx", ".txt"]:
-        return _json_response({"error": "仅支持 PDF/DOCX/TXT"}, 400)
+# =========================
+# 路由：根据简历生成画像（单独接口）
+# =========================
 
-    save_path = os.path.join(UPLOAD_DIR, f"{uuid.uuid4().hex}{ext}")
-    f.save(save_path)
-    text = _extract_text_from_file(save_path, ext)
-    if not text: return _json_response({"error": "解析失败"}, 500)
-    return _json_response({"filename": filename, "ext": ext, "chars": len(text), "text": text})
-
-
-# 一键：解析画像 + 推荐（严格粗评分）
-@app.route("/api/analyze_recommend", methods=["POST", "OPTIONS"])
-def api_analyze_recommend():
-    if request.method == "OPTIONS": return _json_response({"ok": True})
+@app.route("/api/profile", methods=["POST"])
+def api_profile():
     body = request.get_json(silent=True) or {}
     resume_text = (body.get("resume_text") or "").strip()
-    filters     = body.get("filters") or {}
-    top_n       = int(body.get("top_n") or 50)
-    if not resume_text: return _json_response({"error":"resume_text is required."}, 400)
+    prof = _profile_from_resume(resume_text)
+    return _json_response({"profile": prof})
 
-    t0 = time.time()
-    profile = _call_profile(resume_text)
-    keywords = (profile.get("keywords") or []) if isinstance(profile, dict) else _heuristic_keywords(resume_text)
+# =========================
+# 路由：一键分析并推荐（摘要+关键词+职位）
+# =========================
 
+@app.route("/api/analyze_recommend", methods=["POST"])
+def api_analyze_recommend():
+    body = request.get_json(silent=True) or {}
+    resume_text = (body.get("resume_text") or "").strip()
+    filters = body.get("filters") or {}
+    top_n = int(body.get("top_n") or 100)
+
+    prof = _profile_from_resume(resume_text)
+    # 关键词用于初筛（很粗略）
+    kws = set([k.strip().lower() for k in prof.get("keywords") or [] if k and isinstance(k, str)])
+
+    # 拉所有职位，然后进行粗过滤（地点/类型/关键词）
     jobs = _read_jobs()
-    loc_raw = (filters.get("location") or "").strip().lower()
-    loc_tokens = [t for t in re.split(r"[,\s/，、]+", loc_raw) if t]
 
-    def pass_filters(it):
-        if loc_tokens:
-            lf = (it.get("location","") or "").lower()
-            if not any(tok in lf for tok in loc_tokens): return False
-        tp = (filters.get("type") or "").strip().lower()
-        wm = (filters.get("work_mode") or "").strip().lower()
-        if tp and it.get("type") != tp: return False
-        if wm and it.get("work_mode") != wm: return False
-        return True
+    loc = (filters.get("location") or "").strip()
+    type_ = (filters.get("type") or "").strip().lower()
+    work_mode = (filters.get("work_mode") or "").strip().lower()
 
-    cand = [j for j in jobs if pass_filters(j)]
-    kw = [k.strip().lower() for k in keywords if isinstance(k,str) and k.strip()]
+    prelim = []
+    for j in jobs:
+        if loc and loc not in (j.get("location") or ""):
+            continue
+        if type_ and type_ != (j.get("type") or "").lower():
+            continue
+        if work_mode and work_mode != (j.get("work_mode") or "").lower():
+            continue
+        # 关键词简单打分（出现则 +1）
+        score = 0
+        field = " ".join([j.get("title",""), j.get("company",""), " ".join(j.get("tags") or [])]).lower()
+        for k in kws:
+            if k and k in field:
+                score += 1
+        prelim.append((score, j))
 
-    scored = []
-    for it in cand:
-        it2 = dict(it)
-        it2["_score"] = _coarse_score(it, kw, filters)
-        it2.pop("_posted_ts", None)
-        scored.append(it2)
+    prelim.sort(key=lambda x: x[0], reverse=True)
+    items = [it for _, it in prelim[:top_n]]
 
-    scored.sort(key=lambda x: (x.get("_score",0), x.get("posted_at","")), reverse=True)
     return _json_response({
-        "profile": profile if isinstance(profile, dict) else {},
-        "summary_text": (profile.get("summary") if isinstance(profile, dict) else _heuristic_summary(resume_text, keywords)) or "",
-        "items": scored[:top_n],
-        "total": len(scored),
-        "runtime_ms": int((time.time()-t0)*1000)
+        "summary_text": prof.get("summary") or "",
+        "profile": prof,
+        "items": items,
+        "total": len(prelim)
     })
 
+# =========================
+# 路由：单个职位 LLM 精评
+# =========================
 
-# 批量精评（前端会把 TopN id 传来，后端逐个 LLM）
-@app.route("/api/match_batch", methods=["POST", "OPTIONS"])
-def api_match_batch():
-    if request.method == "OPTIONS": return _json_response({"ok": True})
+@app.route("/api/match", methods=["POST"])
+def api_match():
     body = request.get_json(silent=True) or {}
+    jd_text = (body.get("jd_text") or "").strip()
     resume_text = (body.get("resume_text") or "").strip()
-    job_ids     = body.get("job_ids") or []
-    limit       = int(body.get("limit") or len(job_ids))
-    if not resume_text or not job_ids:
-        return _json_response({"error":"resume_text and job_ids are required."}, 400)
+    if not jd_text or not resume_text:
+        return _json_response({"error":"missing_text"}, 400)
+    out = _llm_match(jd_text, resume_text, timeout=60)
+    if not out.get("ok"):
+        return _json_response({"error":"llm_unavailable"}, 503)
+    return _json_response(out)
 
-    jobs = _read_jobs()
-    id2job = {j["id"]: j for j in jobs}
-    out = []
-    for jid in job_ids[:limit]:
-        j = id2job.get(jid)
-        if not j: 
-            out.append({"id": jid, "error":"job not found"}); 
+# =========================
+# 路由：批量职位 LLM 精评（前端用来自动出“匹配度/LLM 分”）
+# =========================
+
+@app.route("/api/match_batch", methods=["POST"])
+def api_match_batch():
+    body = request.get_json(silent=True) or {}
+    job_ids = body.get("job_ids") or []
+    resume_text = (body.get("resume_text") or "").strip()
+    if not job_ids or not resume_text:
+        return _json_response({"results": []})
+
+    all_jobs = {j["id"]: j for j in _read_jobs()}
+    results = []
+    for jid in job_ids:
+        j = all_jobs.get(jid)
+        if not j:
+            results.append({"id": jid, "error": "not_found"})
             continue
-        jd_text = "\n".join(filter(None, [
-            f"Title: {j.get('title','')}",
+        jd_text = "\n".join([
             f"Company: {j.get('company','')}",
+            f"Title: {j.get('title','')}",
             f"Location: {j.get('location','')}",
             f"Work Mode: {j.get('work_mode','')}, Type: {j.get('type','')}",
-            "Tags: " + ", ".join(j.get("tags") or []),
+            f"Tags: {', '.join(j.get('tags') or [])}",
             j.get("notes","")
-        ]))
-        res = _call_match(resume_text, jd_text)
-        if res.get("error"):
-            out.append({"id": jid, "error": "LLM 服务暂不可用"})
+        ])
+        out = _llm_match(jd_text, resume_text, timeout=55)
+        if not out.get("ok"):
+            results.append({"id": jid, "error": "llm_unavailable"})
         else:
-            out.append({"id": jid, **res})
-    return _json_response({"results": out})
+            results.append({"id": jid, **out})
+    return _json_response({"results": results})
 
+# =========================
+# 路由：导入公开职位（Greenhouse / Lever / Workday）
+# =========================
 
-# 单个精评（保留）
-@app.route("/api/match", methods=["POST", "OPTIONS"])
-def api_match():
-    if request.method == "OPTIONS": return _json_response({"ok": True})
-    body = request.get_json(silent=True) or {}
-    resume_text = (body.get("resume_text") or "").strip()
-    jd_text     = (body.get("jd_text") or "").strip()
-    if not resume_text or not jd_text:
-        return _json_response({"error":"resume_text and jd_text are required."}, 400)
-    return _json_response(_call_match(resume_text, jd_text))
-
-
-# 面试准备包（保留）
-@app.route("/api/interview", methods=["POST", "OPTIONS"])
-def api_interview():
-    if request.method == "OPTIONS": return _json_response({"ok": True})
-    body = request.get_json(silent=True) or {}
-    resume_text = (body.get("resume_text") or "").strip()
-    job = body.get("job") or {}
-    job_id = (body.get("job_id") or "").strip()
-    if not resume_text: return _json_response({"error":"resume_text is required."}, 400)
-
-    if job_id and not job:
-        job = next((x for x in _read_jobs() if x.get("id")==job_id), {})
-    job_brief = []
-    if job:
-        job_brief += [
-            f"Title: {job.get('title','')}",
-            f"Company: {job.get('company','')}",
-            f"Location: {job.get('location','')}",
-            f"Work Mode: {job.get('work_mode','')}, Type: {job.get('type','')}",
-            "Tags: " + ", ".join(job.get("tags") or []),
-        ]
-        if job.get("notes"):  job_brief.append("Notes: " + job.get("notes",""))
-        if job.get("jd_url"): job_brief.append("JD URL: " + job.get("jd_url",""))
-    else:
-        custom = (body.get("job_brief") or "").strip()
-        if custom: job_brief.append(custom)
-    return _json_response(_call_match(resume_text, "\n".join(job_brief)))
-
-
-# 公开职位采集（Greenhouse/Lever）
-HEADERS = ["id","title","company","location","work_mode","type","tags","salary_min","salary_max","currency","jd_url","posted_at","source","notes"]
-
-def _append_jobs(rows):
-    _ensure_jobs_csv(HEADERS)
-    with _csv_lock, open(JOBS_CSV_PATH, "a", encoding="utf-8", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=HEADERS)
-        for r in rows:
-            r["tags"] = ", ".join(r.get("tags") or [])
-            writer.writerow({k:r.get(k,"") for k in HEADERS})
-
-@app.route("/api/ingest_ats", methods=["POST", "OPTIONS"])
+@app.route("/api/ingest_ats", methods=["POST"])
 def api_ingest_ats():
-    if request.method == "OPTIONS": return _json_response({"ok": True})
-    # 简单权限
-    token = request.headers.get("X-Admin-Token","")
-    if ADMIN_TOKEN and token != ADMIN_TOKEN:
-        return _json_response({"error":"unauthorized"}, 403)
+    if ADMIN_TOKEN and request.headers.get("X-Admin-Token") != ADMIN_TOKEN:
+        return _json_response({"error":"unauthorized"}, 401)
 
-    body  = request.get_json(silent=True) or {}
-    gh    = body.get("greenhouse") or []  # ["company_slug", ...]
-    lever = body.get("lever") or []       # ["company_slug", ...]
+    body = request.get_json(silent=True) or {}
+    gh_list = body.get("greenhouse") or []
+    lv_list = body.get("lever") or []
+    wd_list = body.get("workday") or []   # [{tenant, site}, ...]
 
-    rows = []
+    new_jobs = []
 
     # Greenhouse
-    for slug in gh:
-        try:
-            url = f"https://boards-api.greenhouse.io/v1/boards/{slug}/jobs"
-            data = requests.get(url, timeout=30).json()
-            for j in data.get("jobs", []):
-                loc = (j.get("location") or {}).get("name","") or ""
-                posted = (j.get("updated_at") or j.get("created_at") or "")[:10]
-                rows.append({
-                    "id": str(uuid.uuid4()),
-                    "title": j.get("title",""),
-                    "company": slug,
-                    "location": loc,
-                    "work_mode": "", "type": "full",
-                    "tags": [d.get("name","") for d in (j.get("departments") or [])],
-                    "salary_min":"", "salary_max":"", "currency":"",
-                    "jd_url": j.get("absolute_url",""),
-                    "posted_at": posted,
-                    "source": "greenhouse",
-                    "notes": ""
-                })
-        except Exception:
+    for slug in gh_list:
+        slug = (slug or "").strip()
+        if not slug:
             continue
+        try:
+            new_jobs.extend(_fetch_greenhouse_jobs(slug))
+        except Exception:
+            pass
 
     # Lever
-    for slug in lever:
-        try:
-            url = f"https://api.lever.co/v0/postings/{slug}?mode=json"
-            data = requests.get(url, timeout=30).json()
-            for j in data:
-                loc = ((j.get("categories") or {}).get("location") or "") or ""
-                posted = (j.get("createdAt") or 0)
-                if isinstance(posted,int) and posted>0:
-                    posted = datetime.utcfromtimestamp(posted/1000).strftime("%Y-%m-%d")
-                rows.append({
-                    "id": str(uuid.uuid4()),
-                    "title": j.get("text",""),
-                    "company": slug,
-                    "location": loc,
-                    "work_mode": "", "type": "full",
-                    "tags": [t for t in [(j.get("categories") or {}).get("team","")] if t],
-                    "salary_min":"", "salary_max":"", "currency":"",
-                    "jd_url": j.get("hostedUrl") or j.get("applyUrl") or "",
-                    "posted_at": posted or "",
-                    "source": "lever",
-                    "notes": ""
-                })
-        except Exception:
+    for slug in lv_list:
+        slug = (slug or "").strip()
+        if not slug:
             continue
+        try:
+            new_jobs.extend(_fetch_lever_jobs(slug))
+        except Exception:
+            pass
 
-    if rows:
-        _append_jobs(rows)
-    return _json_response({"ingested": len(rows)})
+    # Workday
+    for itm in wd_list:
+        tenant = (itm.get("tenant") or "").strip()
+        site   = (itm.get("site") or "").strip()
+        if not tenant or not site:
+            continue
+        try:
+            new_jobs.extend(_fetch_workday_jobs(tenant, site))
+        except Exception:
+            pass
 
+    # 去重（按 jd_url）
+    seen = set()
+    dedup = []
+    for j in new_jobs:
+        k = (j.get("jd_url") or "").strip()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        dedup.append(j)
 
-# 健康/静态
-@app.route("/public/<path:filename>", methods=["GET"])
-def public_files(filename): return send_from_directory("public", filename)
+    _append_jobs_to_csv(dedup)
+    return _json_response({"ingested": len(dedup)})
 
-@app.route("/", methods=["GET"])
-def home(): return send_from_directory("public", "index.html")
+# =========================
+# 路由：LLM 自检
+# =========================
 
-@app.route("/health", methods=["GET"])
-def health(): return _json_response({"status":"ok", "time": int(time.time())})
+@app.route("/api/llm_ping", methods=["GET"])
+def api_llm_ping():
+    if not DEEPSEEK_API_KEY:
+        return _json_response({"ok": False, "error":"missing_api_key"}, 503)
+    res = _call_deepseek([{"role":"user","content":"reply with: ok"}], temperature=0.0, timeout=20)
+    if not res["ok"]:
+        return _json_response({"ok": False, "error":"llm_unavailable"}, 503)
+    return _json_response({"ok": True, "content": (res.get("content") or "").strip()[:50]})
 
-@app.route("/version", methods=["GET"])
-def version(): return _json_response({"name":"LGWORK API", "version":"0.5.0", "jobs_csv": JOBS_CSV_PATH})
+# =========================
+# 入口
+# =========================
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
