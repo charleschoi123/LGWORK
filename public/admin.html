@@ -6,7 +6,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   body{font-family:ui-sans-serif,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Microsoft YaHei";background:#0b0f14;color:#e5e7eb;margin:0}
-  .wrap{max-width:900px;margin:24px auto;padding:0 16px}
+  .wrap{max-width:980px;margin:24px auto;padding:0 16px}
   .card{background:#0f172a;border:1px solid #1f2937;border-radius:16px;padding:16px}
   textarea,input,button{width:100%;box-sizing:border-box;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #29303a;background:#111827;color:#e5e7eb}
   button{cursor:pointer;background:#0369a1;border-color:#0369a1}
@@ -18,27 +18,35 @@
 <div class="wrap">
   <h2>LGWORK · 公开职位采集</h2>
   <div class="card">
-    <p><b>说明：</b>支持采集 <b>Greenhouse</b> 与 <b>Lever</b> 的公开职位。公司 <i>slug</i> 就是招聘页链接里的那段，例如：</p>
+    <p><b>说明：</b>当前支持 <b>Greenhouse</b>、<b>Lever</b>、<b>Workday</b> 的公开职位。</p>
     <ul>
-      <li>Greenhouse：<code>https://boards.greenhouse.io/<b>company_slug</b></code></li>
-      <li>Lever：<code>https://jobs.lever.co/<b>company_slug</b></code></li>
+      <li>Greenhouse：<code>https://boards.greenhouse.io/&lt;company_slug&gt;</code>（例：<code>figma</code>、<code>airbnb</code>）</li>
+      <li>Lever：<code>https://jobs.lever.co/&lt;company_slug&gt;</code>（例：<code>scaleai</code>）</li>
+      <li>Workday：浏览器地址一般是 <code>https://&lt;tenant&gt;.wdX.myworkdayjobs.com/.../&lt;site&gt;</code>，填 <code>tenant/site</code>（例：<code>beigene/BeiGene</code>）。</li>
     </ul>
+
     <div class="row">
       <div>
-        <label>Greenhouse slugs（逗号分隔）</label>
-        <textarea id="gh" rows="6" placeholder="如：companyA,companyB"></textarea>
+        <label>Greenhouse slugs（逗号/空格分隔）</label>
+        <textarea id="gh" rows="6" placeholder="如：airbnb, stripe, figma, notion, databricks"></textarea>
       </div>
       <div>
-        <label>Lever slugs（逗号分隔）</label>
-        <textarea id="lv" rows="6" placeholder="如：companyC,companyD"></textarea>
+        <label>Lever slugs（逗号/空格分隔）</label>
+        <textarea id="lv" rows="6" placeholder="如：scaleai, notion"></textarea>
       </div>
     </div>
-    <label>Admin Token（若未在服务端设置可留空）</label>
+
+    <label>Workday 租户/站点（每行一个，格式 tenant/site）</label>
+    <textarea id="wd" rows="6" placeholder="如：beigene/BeiGene&#10;databricks/Databricks"></textarea>
+
+    <label>Admin Token（若服务端未设置可留空）</label>
     <input id="tk" placeholder="与服务端 ADMIN_TOKEN 相同" />
+
     <div class="row">
       <button id="fill">填入示例（可修改后再导入）</button>
       <button id="go">导入职位</button>
     </div>
+
     <pre id="out" style="white-space:pre-wrap;background:#0b1220;border-radius:10px;padding:10px;min-height:70px"></pre>
     <small>导入的数据会追加到 <code>data/jobs.csv</code>。</small>
   </div>
@@ -46,20 +54,22 @@
 <script>
 const out = document.getElementById('out');
 document.getElementById('fill').onclick = ()=>{
-  // 这里只给示例占位，真正要采哪些公司你自己改
-  document.getElementById('gh').value = 'companyA,companyB';
-  document.getElementById('lv').value  = 'companyC,companyD';
+  document.getElementById('gh').value = 'airbnb, stripe, figma, notion, databricks';
+  document.getElementById('lv').value  = 'scaleai';
+  document.getElementById('wd').value  = 'beigene/BeiGene';
 };
 document.getElementById('go').onclick = async ()=>{
   const gh = document.getElementById('gh').value.split(/[,，\s]+/).filter(Boolean);
   const lv = document.getElementById('lv').value.split(/[,，\s]+/).filter(Boolean);
+  const wd = document.getElementById('wd').value.split(/\n+/).map(s=>s.trim()).filter(Boolean)
+              .map(s=>{const [tenant,site]=s.split('/');return {tenant,site}});
   const tk = document.getElementById('tk').value.trim();
   out.textContent = '采集中…';
   try{
     const r = await fetch('/api/ingest_ats', {
       method:'POST',
       headers:Object.assign({'Content-Type':'application/json'}, tk?{'X-Admin-Token':tk}:{}),
-      body: JSON.stringify({ greenhouse: gh, lever: lv })
+      body: JSON.stringify({ greenhouse: gh, lever: lv, workday: wd })
     });
     const d = await r.json();
     out.textContent = r.ok? `导入完成：${d.ingested||0} 条` : `失败：${d.error||'未知错误'}`;
