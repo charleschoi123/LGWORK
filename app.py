@@ -56,13 +56,27 @@ def _ensure_jobs_csv_exists():
 
 def _read_jobs():
     """
-    从 CSV 读取职位
+    从 CSV 读取职位（对 tags 容错，空/脏数据一律当 []）
     """
     _ensure_jobs_csv_exists()
     jobs = []
     with open(JOBS_CSV_PATH, "r", encoding="utf-8-sig", newline="") as f:
         reader = csv.DictReader(f)
         for row in reader:
+            # ---- tags 容错处理 ----
+            tags = []
+            raw = row.get("tags")
+            if isinstance(raw, str):
+                s = raw.strip()
+                if s:
+                    try:
+                        t = json.loads(s)
+                        if isinstance(t, list):
+                            tags = t
+                    except Exception:
+                        tags = []
+            # -----------------------
+
             jobs.append({
                 "id": row.get("id") or str(uuid.uuid4()),
                 "company": (row.get("company") or "").strip(),
@@ -76,29 +90,11 @@ def _read_jobs():
                 "posted_at": (row.get("posted_at") or "").strip(),
                 "jd_url": (row.get("jd_url") or "").strip(),
                 "source": (row.get("source") or "").strip(),
-                "tags": json.loads(row.get("tags") or "[]") if isinstance(row.get("tags"), str) else [],
+                "tags": tags,
                 "notes": (row.get("notes") or "").strip(),
             })
     return jobs
 
-def _append_jobs_to_csv(items):
-    """
-    追加写入 CSV（items 为标准字段的列表）
-    """
-    if not items:
-        return
-    _ensure_jobs_csv_exists()
-    fields = [
-        "id","company","title","location","type","work_mode","currency",
-        "salary_min","salary_max","posted_at","jd_url","source","tags","notes"
-    ]
-    with open(JOBS_CSV_PATH, "a", encoding="utf-8-sig", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=fields)
-        for it in items:
-            row = dict(it)
-            # json 序列化 tags
-            row["tags"] = json.dumps(row.get("tags") or [], ensure_ascii=False)
-            w.writerow(row)
 
 # =========================
 # LLM 调用（DeepSeek）
