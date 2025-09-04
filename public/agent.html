@@ -139,18 +139,56 @@
   const esc = s => (s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
   const chip = s => `<span class="chip">${esc(s)}</span>`;
 
-  async function recommend() {
+async function recommend() {
+  toast('正在生成推荐…');   // 进度提示
+
+  // 拉取所有职位（分页放大一点）
+  const qs = new URLSearchParams();
+  const locInput = els.loc.value.trim();
+  const locTokens = locInput ? locInput.split(/[,\s/，、/]+/).filter(Boolean) : [];
+  // 只有单个城市时才传给后端；多个城市用前端 OR 过滤
+  if (locTokens.length === 1) qs.set('location', locTokens[0]);
+
+  if (els.type.value) qs.set('type', els.type.value);
+  if (els.mode.value) qs.set('work_mode', els.mode.value);
+  qs.set('page', '1'); qs.set('page_size', '500');
+
+  const r = await api('/api/jobs?' + qs.toString());
+  const data = await r.json();
+  let items = data.items || [];
+
+  // 多城市：前端 OR 过滤
+  if (locTokens.length > 1) {
+    const toks = locTokens.map(s => s.toLowerCase());
+    items = items.filter(it => {
+      const hay = (it.location || '').toLowerCase();
+      return toks.some(t => hay.includes(t));
+    });
+  }
+
+  // 关键词数组（输入 + 简历里抓词）
+  const kwInput = (els.kw.value || '').split(/[，,]/).map(s=>s.trim()).filter(Boolean);
+  const autoKw = Array.from(new Set((els.cv.value.toLowerCase().match(/[a-zA-Z\-+#]{3,}/g) || []).slice(0,60)));
+  const kws = new Set([...kwInput.map(s=>s.toLowerCase()), ...autoKw]);
+
+  // 粗评分
+  const scored = items.map(it=>{
+    const hay = (it.title+' '+it.company+' '+(it.location||'')+' '+(it.tags||[]).join(' ')+' '+(it.notes||'')).toLowerCase();
+    let score = 0;
+    kws.forEach(k => { if (k && hay.includes(k)) score += 1; });
+    if (els.type.value && it.type === els.type.value) score += 1.5;
+    if (els.mode.value && it.work_mode === els.mode.value) score += 1.0;
+    return Object.assign({ _score: score }, it);
+  }).sort((a,b)=>b._score - a._score);
+
+  const showN = parseInt(els.limit.value || '20',10);
+  renderJobs(scored.slice(0, showN));
+  els.count.textContent = scored.length;
+
+  toast('已生成推荐');      // ← 完成提示（放在这两行后面）
+}
 
 
-    // 拉取所有职位（分页放大一点）
-    const qs = new URLSearchParams();
-    if (els.loc.value.trim()) qs.set('location', els.loc.value.trim());
-    if (els.type.value) qs.set('type', els.type.value);
-    if (els.mode.value) qs.set('work_mode', els.mode.value);
-    qs.set('page', '1'); qs.set('page_size', '500');
-    const r = await api('/api/jobs?' + qs.toString());
-    const data = await r.json();
-    let items = data.items || [];
 
     // 关键词数组（来自输入+简历里抽取的常见词，简单做法）
     const kwInput = (els.kw.value || '').split(/[，,]/).map(s=>s.trim()).filter(Boolean);
