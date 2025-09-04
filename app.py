@@ -347,8 +347,11 @@ loc_tokens = [t for t in re.split(r"[,\s/，、]+", location_raw) if t]
             ]).lower()
             if q not in hay:
                 return False
-        if location and location not in (item.get("location", "").lower()):
-            return False
+if loc_tokens:
+    loc_field = (item.get("location", "") or "").lower()
+    if not any(tok in loc_field for tok in loc_tokens):
+        return False
+
         if type_ and item.get("type") != type_:
             return False
         if work_mode and item.get("work_mode") != work_mode:
