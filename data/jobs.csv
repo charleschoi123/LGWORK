@@ -1,4 +1,1 @@
-id,title,company,location,work_mode,type,tags,salary_min,salary_max,currency,jd_url,posted_at,source,notes
-2f1b2b12-1a9e-4b3e-9e2e-001122334455,高级科学家（免疫肿瘤）,广州创新生物,广州,onsite,full,"IO;ADC;肿瘤;PhD",300000,450000,CNY,https://example.com/jobs/biotech-1,2025-09-03,company_careers,年薪税前; 需博士; 英文读写要求
-6c7d8e90-1234-4abc-8def-556677889900,数据科学家（蛋白结构建模）,上海AI药物,"上海（可部分远程）",hybrid,full,"AI;蛋白质结构;AlphaFold;Python",350000,550000,CNY,https://example.com/jobs/ai-struct-2,2025-09-01,official_wechat,可远程协作; 每月进沪1-2次; 年薪税前
-a1b2c3d4-e5f6-47aa-88bb-99cc00ddeeff,临床运营顾问（兼职）,生物医药咨询社,远程,remote,project,"临床运营;CRO;兼职;GCP",300,600,USD,https://example.com/jobs/consulting-clinops-3,2025-08-28,referral_public,项目制3个月; 每周约10小时; 时薪
+id,company,title,location,type,work_mode,currency,salary_min,salary_max,posted_at,jd_url,source,tags,notes
