@@ -1,3 +1,4 @@
+import re
 import os
 import csv
 import json
@@ -322,7 +323,8 @@ def api_jobs():
     jobs = _read_jobs()
 
     q = (request.args.get("q") or "").strip().lower()
-    location = (request.args.get("location") or "").strip().lower()
+    location_raw = (request.args.get("location") or "").strip().lower()
+loc_tokens = [t for t in re.split(r"[,\s/，、]+", location_raw) if t]
     type_ = (request.args.get("type") or "").strip().lower()       # full/part/project
     work_mode = (request.args.get("work_mode") or "").strip().lower()  # onsite/hybrid/remote
     tag = (request.args.get("tag") or "").strip().lower()
