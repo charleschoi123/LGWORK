@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <title>LGWORK · 面试准备包</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <style>
+    :root{--bg:#0b0f14;--panel:#0f172a;--card:#111827;--muted:#94a3b8;--text:#e5e7eb;--brand:#38bdf8}
+    *{box-sizing:border-box} body{margin:0;background:var(--bg);color:var(--text);font-family:ui-sans-serif,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,"Microsoft YaHei",sans-serif}
+    header{position:sticky;top:0;background:rgba(11,15,20,.85);backdrop-filter:blur(8px);border-bottom:1px solid #1f2937;z-index:10}
+    .wrap{max-width:1100px;margin:0 auto;padding:16px}
+    h1{margin:0 0 6px;font-size:20px;display:flex;gap:10px;align-items:center}.dot{width:10px;height:10px;border-radius:999px;background:var(--brand);box-shadow:0 0 14px var(--brand)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}@media(max-width:980px){.grid{grid-template-columns:1fr}}
+    .panel{background:var(--card);border:1px solid #1f2937;border-radius:16px;padding:14px}
+    textarea{width:100%;min-height:180px;padding:10px;border-radius:12px;border:1px solid #29303a;background:var(--panel);color:var(--text);resize:vertical}
+    input,select,button{padding:10px 12px;border-radius:12px;border:1px solid #29303a;background:var(--panel);color:var(--text)}
+    .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    button{cursor:pointer}.primary{background:#0369a1;border-color:#0369a1}
+    .muted{color:var(--muted);font-size:12px}
+    .section{margin-top:14px}
+    .title{font-weight:700;margin:8px 0 6px}
+    ul{margin:6px 0 0 18px}
+    .toast{position:fixed;bottom:14px;right:14px;background:#0f172a;border:1px solid #29303a;border-radius:12px;padding:10px 12px;display:none}
+    .chip{display:inline-block;font-size:12px;padding:3px 8px;border-radius:999px;background:#1f2937;border:1px solid #2a3441;margin-right:6px;margin-bottom:6px}
+    .k{display:flex;flex-wrap:wrap;gap:6px}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1><span class="dot"></span>LGWORK · 面试准备包</h1>
+    <div class="muted">上传/粘贴简历 → 选择职位（或自填岗位要点）→ 一键生成公司简析、岗位考点、常见问答、30秒自我介绍、复盘邮件等。</div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div class="grid">
+    <!-- 左：简历 -->
+    <div class="panel">
+      <div>简历文本</div>
+      <textarea id="cv" placeholder="粘贴简历（或点击下方上传解析 PDF/DOCX/TXT）"></textarea>
+      <div class="row" style="margin-top:8px">
+        <input id="file" type="file" accept=".pdf,.docx,.txt" />
+        <button id="btnUpload">上传并解析</button>
+      </div>
+    </div>
+
+    <!-- 右：选择职位 / 自定义岗位要点 -->
+    <div class="panel">
+      <div class="row">
+        <input id="q" placeholder="在职位库中搜索（标题/公司/标签）" style="flex:1" />
+        <button id="btnReload">刷新职位</button>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <select id="jobSel" style="flex:1;min-width:280px">
+          <option value="">（可选）从职位库选择目标岗位</option>
+        </select>
+        <button id="btnGen" class="primary">生成面试准备包</button>
+      </div>
+      <div class="muted" style="margin-top:6px">如果没有合适的职位，也可以在下方自填“岗位要点”（JD 摘要/关键要求）。</div>
+      <textarea id="brief" placeholder="自定义岗位要点（可留空；选中上面的岗位则自动生成）"></textarea>
+    </div>
+  </div>
+
+  <!-- 结果区 -->
+  <div id="result" class="panel section" style="display:none">
+    <div class="title">公司简析</div>
+    <div id="company"></div>
+
+    <div class="title">岗位重点</div>
+    <ul id="focus"></ul>
+
+    <div class="title">必须准备的主题</div>
+    <ul id="must"></ul>
+
+    <div class="title">你的潜在短板 / 补差建议</div>
+    <ul id="gaps"></ul>
+
+    <div class="title">常见问答（含要点） <button id="copyQA">复制Q&A</button></div>
+    <div id="qas"></div>
+
+    <div class="title">30秒自我介绍 <button id="copyPitch">复制</button></div>
+    <div id="pitch" style="white-space:pre-wrap"></div>
+
+    <div class="title">面试前检查清单</div>
+    <ul id="checklist"></ul>
+
+    <div class="title">复盘/跟进邮件模版 <button id="copyMail">复制</button></div>
+    <pre id="mail" style="white-space:pre-wrap"></pre>
+  </div>
+</main>
+
+<div id="toast" class="toast"></div>
+
+<script>
+  // ==== API 地址（同域留空） ====
+  const API_BASE = '';
+  // ============================
+
+  const els = {
+    cv: document.getElementById('cv'),
+    file: document.getElementById('file'),
+    btnUpload: document.getElementById('btnUpload'),
+    q: document.getElementById('q'),
+    btnReload: document.getElementById('btnReload'),
+    jobSel: document.getElementById('jobSel'),
+    brief: document.getElementById('brief'),
+    btnGen: document.getElementById('btnGen'),
+    result: document.getElementById('result'),
+    company: document.getElementById('company'),
+    focus: document.getElementById('focus'),
+    must: document.getElementById('must'),
+    gaps: document.getElementById('gaps'),
+    qas: document.getElementById('qas'),
+    pitch: document.getElementById('pitch'),
+    checklist: document.getElementById('checklist'),
+    mail: document.getElementById('mail'),
+    copyQA: document.getElementById('copyQA'),
+    copyPitch: document.getElementById('copyPitch'),
+    copyMail: document.getElementById('copyMail'),
+    toast: document.getElementById('toast'),
+  };
+
+  function api(url, opts={}){ const base = API_BASE?API_BASE:''; return fetch(base+url, opts); }
+  function toast(msg, err=false){ els.toast.textContent=msg; els.toast.style.display='block'; els.toast.style.borderColor=err?'#7f1d1d':'#29303a'; setTimeout(()=>els.toast.style.display='none',2000); }
+  const esc = s => (s||'').toString().replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));
+  const li = s => `<li>${esc(s)}</li>`;
+
+  // --- 职位列表 ---
+  let allJobs = [];
+  async function loadJobs(q=''){
+    const r = await api('/api/jobs?page=1&page_size=500&q='+encodeURIComponent(q));
+    const d = await r.json();
+    allJobs = d.items || [];
+    renderJobOptions();
+  }
+  function renderJobOptions(){
+    const sel = els.jobSel;
+    const cur = sel.value;
+    sel.innerHTML = '<option value="">（可选）从职位库选择目标岗位</option>' +
+      allJobs.map(j=>`<option value="${esc(j.id)}">${esc(j.title)} · ${esc(j.company)} · ${esc(j.location||'')}</option>`).join('');
+    if (allJobs.find(x=>x.id===cur)) sel.value = cur;
+  }
+
+  // --- 上传解析 ---
+  els.btnUpload.onclick = async ()=>{
+    const f = els.file.files[0];
+    if(!f){ toast('请选择 PDF/DOCX/TXT 文件', true); return; }
+    const form = new FormData(); form.append('file', f);
+    toast('正在解析简历…');
+    try{
+      const r = await api('/api/upload_resume', { method:'POST', body: form });
+      const d = await r.json();
+      if(!r.ok || d.error) throw new Error(d.error || ('HTTP '+r.status));
+      els.cv.value = d.text || '';
+      toast('解析成功');
+    }catch(e){ console.error(e); toast('解析失败：'+e.message, true); }
+  };
+
+  // --- 生成面试准备包 ---
+  els.btnGen.onclick = async ()=>{
+    const resume = els.cv.value.trim();
+    if(!resume){ toast('请先上传/粘贴简历文本', true); return; }
+
+    // 若选了职位，自动生成 job brief；否则用自填 brief
+    let job = null, job_id = '';
+    if (els.jobSel.value){
+      job_id = els.jobSel.value;
+      job = allJobs.find(x=>x.id===job_id) || null;
+      // 没选也允许只填 brief
+    }
+    let body = { resume_text: resume };
+    if (job) body.job_id = job_id;
+    const custom = els.brief.value.trim();
+    if (!job && custom) body.job_brief = custom;
+
+    toast('正在生成面试准备包…');
+    try{
+      const r = await api('/api/interview', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify(body)
+      });
+      const d = await r.json();
+      if(!r.ok || d.error) throw new Error(d.error || ('HTTP '+r.status));
+      renderResult(d);
+      toast('生成完成');
+    }catch(e){ console.error(e); toast('生成失败：'+e.message, true); }
+  };
+
+  // --- 渲染结果 ---
+  function renderResult(d){
+    els.result.style.display = 'block';
+    els.company.innerHTML = esc(d.company_brief || '—');
+    els.focus.innerHTML = (d.role_focus_points||[]).map(li).join('') || '<li>—</li>';
+    els.must.innerHTML = (d.must_ask_topics||[]).map(li).join('') || '<li>—</li>';
+    els.gaps.innerHTML = (d.candidate_gaps||[]).map(li).join('') || '<li>—</li>';
+
+    // Q&A
+    const qas = Array.isArray(d.practice_questions)?d.practice_questions:[];
+    els.qas.innerHTML = qas.map((x,i)=>{
+      const q = (x && x.q) ? x.q : '';
+      const tps = Array.isArray(x && x.talking_points) ? x.talking_points : [];
+      return `<div class="section">
+        <div class="title">Q${i+1}. ${esc(q)}</div>
+        <ul>${tps.map(li).join('') || '<li>—</li>'}</ul>
+      </div>`;
+    }).join('') || '<div class="muted">—</div>';
+
+    els.pitch.textContent = d.thirty_sec_pitch || '—';
+    els.checklist.innerHTML = (d.research_checklist||[]).map(li).join('') || '<li>—</li>';
+    els.mail.textContent = d.followup_email || '—';
+  }
+
+  // --- 复制 ---
+  els.copyQA.onclick = async ()=>{
+    const blocks = document.querySelectorAll('#qas .section');
+    const text = Array.from(blocks).map(b=>{
+      const title = b.querySelector('.title')?.textContent || '';
+      const lis = Array.from(b.querySelectorAll('li')).map(li=>'- '+li.textContent.trim()).join('\n');
+      return `${title}\n${lis}`;
+    }).join('\n\n');
+    await copy(text);
+  };
+  els.copyPitch.onclick = async ()=>{ await copy(els.pitch.textContent || ''); };
+  els.copyMail.onclick = async ()=>{ await copy(els.mail.textContent || ''); };
+
+  async function copy(text){
+    try{ await navigator.clipboard.writeText(text); toast('已复制'); }
+    catch{ toast('复制失败', true); }
+  }
+
+  // --- 搜索/刷新职位 ---
+  els.btnReload.onclick = ()=> loadJobs(els.q.value.trim());
+  els.q.addEventListener('keydown', e=>{ if(e.key==='Enter') loadJobs(els.q.value.trim()); });
+
+  // 初始化
+  loadJobs();
+</script>
+</body>
+</html>
