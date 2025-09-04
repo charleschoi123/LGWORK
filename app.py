@@ -400,6 +400,25 @@ def public_files(filename):
 # 路由：职位列表
 # =========================
 
+# 让根路径直接打开前端首页（agent.html）
+@app.route("/")
+def index():
+    return send_from_directory("public", "agent.html")
+
+# 可选：/admin 直达采集页（不想记 /public/admin.html）
+@app.route("/admin")
+def admin_shortcut():
+    return send_from_directory("public", "admin.html")
+
+# 可选：把 404 兜底到首页，避免用户输错路径看到 404
+@app.errorhandler(404)
+def not_found(_):
+    try:
+        return send_from_directory("public", "agent.html")
+    except Exception:
+        return jsonify({"error": "not_found"}), 404
+
+
 @app.route("/api/jobs", methods=["GET"])
 def api_jobs():
     page = int(request.args.get("page", 1))
