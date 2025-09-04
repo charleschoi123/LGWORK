@@ -1,5 +1,5 @@
-import re
 import os
+import re
 import csv
 import json
 import uuid
@@ -313,7 +313,7 @@ def _call_deepseek_interview(resume_text: str, job_brief: str):
 
 
 # -----------------------------
-# 路由：职位列表 + 过滤
+# 路由：职位列表 + 过滤（支持多城市 OR）
 # -----------------------------
 @app.route("/api/jobs", methods=["GET", "OPTIONS"])
 def api_jobs():
@@ -323,9 +323,11 @@ def api_jobs():
     jobs = _read_jobs()
 
     q = (request.args.get("q") or "").strip().lower()
+    # 支持 “上海/苏州, 远程” 这种多分隔符
     location_raw = (request.args.get("location") or "").strip().lower()
-loc_tokens = [t for t in re.split(r"[,\s/，、]+", location_raw) if t]
-    type_ = (request.args.get("type") or "").strip().lower()       # full/part/project
+    loc_tokens = [t for t in re.split(r"[,\s/，、]+", location_raw) if t]
+
+    type_ = (request.args.get("type") or "").strip().lower()           # full/part/project
     work_mode = (request.args.get("work_mode") or "").strip().lower()  # onsite/hybrid/remote
     tag = (request.args.get("tag") or "").strip().lower()
     min_salary = _safe_float(request.args.get("min_salary"))
@@ -347,10 +349,12 @@ loc_tokens = [t for t in re.split(r"[,\s/，、]+", location_raw) if t]
             ]).lower()
             if q not in hay:
                 return False
-if loc_tokens:
-    loc_field = (item.get("location", "") or "").lower()
-    if not any(tok in loc_field for tok in loc_tokens):
-        return False
+
+        # 多城市 OR
+        if loc_tokens:
+            loc_field = (item.get("location", "") or "").lower()
+            if not any(tok in loc_field for tok in loc_tokens):
+                return False
 
         if type_ and item.get("type") != type_:
             return False
@@ -475,7 +479,7 @@ def api_recommend():
         loc = (filters.get("location") or "").strip().lower()
         tp = (filters.get("type") or "").strip().lower()
         wm = (filters.get("work_mode") or "").strip().lower()
-        if loc and loc not in (it.get("location","").lower()):
+        if loc and loc not in (it.get("location", "").lower()):
             return False
         if tp and it.get("type") != tp:
             return False
@@ -488,24 +492,31 @@ def api_recommend():
     kw = [k.strip().lower() for k in keywords if isinstance(k, str) and k.strip()]
 
     def score(it):
-        hay_title = (it.get("title","") or "").lower()
-        hay_company = (it.get("company","") or "").lower()
-        hay_loc = (it.get("location","") or "").lower()
+        hay_title = (it.get("title", "") or "").lower()
+        hay_company = (it.get("company", "") or "").lower()
+        hay_loc = (it.get("location", "") or "").lower()
         hay_tags = " ".join((it.get("tags") or [])).lower()
-        hay_notes = (it.get("notes","") or "").lower()
+        hay_notes = (it.get("notes", "") or "").lower()
         hay = " ".join([hay_title, hay_company, hay_loc, hay_tags, hay_notes])
 
         s = 0.0
         for k in kw:
             if not k:
                 continue
-            if k in hay_title: s += 3.0
-            if k in hay_tags:  s += 2.5
-            if k in hay_company: s += 1.0
-            if k in hay_notes or k in hay_loc: s += 1.0
-            if k in hay: s += 0.5
-        if filters.get("type") and it.get("type") == filters.get("type"): s += 1.0
-        if filters.get("work_mode") and it.get("work_mode") == filters.get("work_mode"): s += 1.0
+            if k in hay_title:
+                s += 3.0
+            if k in hay_tags:
+                s += 2.5
+            if k in hay_company:
+                s += 1.0
+            if k in hay_notes or k in hay_loc:
+                s += 1.0
+            if k in hay:
+                s += 0.5
+        if filters.get("type") and it.get("type") == filters.get("type"):
+            s += 1.0
+        if filters.get("work_mode") and it.get("work_mode") == filters.get("work_mode"):
+            s += 1.0
         return s
 
     scored = []
@@ -516,7 +527,7 @@ def api_recommend():
         it2.pop("_posted_ts", None)
         scored.append(it2)
 
-    scored.sort(key=lambda x: (x.get("_score", 0), x.get("posted_at","")), reverse=True)
+    scored.sort(key=lambda x: (x.get("_score", 0), x.get("posted_at", "")), reverse=True)
     return _json_response({"items": scored[:top_n], "total": len(scored)})
 
 
@@ -568,9 +579,12 @@ def api_interview():
         job_brief.append(f"Location: {job.get('location','')}")
         job_brief.append(f"Work Mode: {job.get('work_mode','')}, Type: {job.get('type','')}")
         tags = job.get("tags") or []
-        if tags: job_brief.append("Tags: " + ", ".join(tags))
-        if job.get("notes"): job_brief.append("Notes: " + job.get("notes",""))
-        if job.get("jd_url"): job_brief.append("JD URL: " + job.get("jd_url",""))
+        if tags:
+            job_brief.append("Tags: " + ", ".join(tags))
+        if job.get("notes"):
+            job_brief.append("Notes: " + job.get("notes", ""))
+        if job.get("jd_url"):
+            job_brief.append("JD URL: " + job.get("jd_url", ""))
     else:
         # 允许只传自定义 brief
         custom = (body.get("job_brief") or "").strip()
@@ -674,7 +688,7 @@ def health():
 def version():
     return _json_response({
         "name": "LGWORK API",
-        "version": "0.3.0",
+        "version": "0.3.1",
         "jobs_csv": JOBS_CSV_PATH,
         "model": DEEPSEEK_MODEL
     })
