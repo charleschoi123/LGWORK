@@ -46,6 +46,7 @@ def json_response(obj: Dict[str, Any], status: int = 200):
     resp = make_response(json.dumps(obj, ensure_ascii=False), status)
     resp.headers["Content-Type"] = "application/json; charset=utf-8"
     return resp
+_json_response = json_response
 
 def _safe_float(v, dv=0.0):
     try:
