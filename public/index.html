@@ -3,40 +3,61 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LGWORK</title>
+<title>LGWORK • Less guesswork, faster hires</title>
 <style>
   :root{--pri:#0a66c2;--bg:#f3f2ef;--fg:#091e42;--muted:#5e6c84;--card:#fff;--border:#e0e0e0}
   body{font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0}
   .wrap{max-width:1080px;margin:0 auto;padding:32px}
-  .hero{display:flex;align-items:center;justify-content:space-between;gap:24px}
-  h1{font-weight:700;margin:0 0 8px}
-  .sub{color:var(--muted)}
-  .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:24px}
+  .hero{display:grid;grid-template-columns:1.2fr .8fr;gap:24px;align-items:center}
+  h1{font-weight:800;margin:0 0 8px;font-size:34px}
+  .sub{color:var(--muted);font-size:16px}
+  .cta{display:flex;gap:10px;margin-top:16px}
+  .btn{display:inline-block;background:var(--pri);color:#fff;text-decoration:none;padding:12px 18px;border-radius:12px}
+  .btn.ghost{background:#fff;color:var(--pri);border:1px solid var(--pri)}
+  .pill{display:inline-block;background:#e9f3ff;color:#0a66c2;border-radius:999px;padding:6px 10px;font-size:12px;margin-right:6px}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:26px}
   .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px}
-  .btn{display:inline-block;background:var(--pri);color:#fff;text-decoration:none;padding:10px 16px;border-radius:10px}
+  .foot{margin-top:24px;color:var(--muted);font-size:13px}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div class="hero">
     <div>
-      <h1>LGWORK • AI 职业与招聘平台</h1>
-      <div class="sub">面向企业与求职者的智能助手。</div>
+      <div class="pill">BETA</div>
+      <h1>Less guesswork, faster hires</h1>
+      <div class="sub">更少试错，更快入职。LGWORK 让 AI 成为你的职业/招聘分身：画像 → 匹配 → 申请，一站式搞定。</div>
+      <div class="cta">
+        <a class="btn" href="./agent.html">我是求职者</a>
+        <a class="btn ghost" href="./employer.html">我是招聘方</a>
+      </div>
+    </div>
+    <div>
+      <div class="card">
+        <b>功能速览</b>
+        <ul>
+          <li>智能职位代理：全网抓取、去重、H-1B/零经验等特色筛选</li>
+          <li>简历大师：上传/粘贴简历 → AI 解析与优化 → ATS 简历生成</li>
+          <li>自动化申请：满意后，一键授权批量投递</li>
+          <li>进展追踪：投递、查看、面试、Offer 全流程可视化</li>
+        </ul>
+        <a class="btn" href="./admin.html" style="margin-top:8px">进入职位抓取后台</a>
+      </div>
     </div>
   </div>
 
   <div class="cards">
     <div class="card">
-      <h3>我是来找人的（B端）</h3>
-      <p class="sub">上传/粘贴 JD，或用自然语言描述需求，由 AI 梳理并生成 JD；可继续进行候选人画像与匹配。</p>
-      <a class="btn" href="./employer.html">进入企业入口</a>
+      <h3>为什么选 LGWORK？</h3>
+      <div class="sub">深度微调 + 动态工作流引擎 + 数据飞轮，越用越聪明。</div>
     </div>
     <div class="card">
-      <h3>我是来找工作的（C端）</h3>
-      <p class="sub">上传或粘贴简历，获取画像与优化建议，并智能推荐合适职位与定制简历。</p>
-      <a class="btn" href="./agent.html">进入求职入口</a>
+      <h3>隐私与安全</h3>
+      <div class="sub">全程加密与匿名化；未经授权，绝不向企业端暴露个人数据。</div>
     </div>
   </div>
+
+  <div class="foot">© 2025 LGWORK</div>
 </div>
 </body>
 </html>
