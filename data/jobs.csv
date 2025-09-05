@@ -1,1 +1,3 @@
-id,company,title,location,type,work_mode,currency,salary_min,salary_max,posted_at,jd_url,source,tags,notes
+id,source,company,title,location,remote,level,salary,jd_url,description,tags,posted_at
+seed-1,seed,DemoBio,Research Associate,Boston,TRUE,IC,,https://example.com/jobs/seed-1,"Assist in cell culture and assay development; Bachelor+; willingness to learn.","[""zero_exp_friendly"", ""remote""]",2025-01-02T10:00:00Z
+seed-2,seed,DemoTech,Data Analyst,Shanghai,FALSE,IC,,https://example.com/jobs/seed-2,"SQL / Python required; dashboard experience preferred.","[]",2025-01-05T12:00:00Z
