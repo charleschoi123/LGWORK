@@ -1,6 +1,6 @@
 import os, csv, io, re, json, time, uuid, random, logging
 from datetime import datetime
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 import requests
 from flask import Flask, request, jsonify, send_from_directory, redirect
@@ -24,13 +24,13 @@ DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY') or os.getenv('LLM_API_KEY')
 DEEPSEEK_API_BASE = os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 
-UA = {'User-Agent': 'LGWORKBot/1.0 (+https://example.com)'}
+UA = {'User-Agent': 'LGWORKBot/1.0 (+https://lgwork.example)'}
 REQ_TIMEOUT = 25
 
 # ---- 内置默认 seeds（seed_sources.json 缺失/为空时使用） ----
 DEFAULT_SEEDS = {
     "greenhouse": [
-        "openai","stripe","databricks","asana","affirm","notion","discord","doordash","coinbase",
+        "openai","stripe","databricks","asana","affirm","discord","doordash","coinbase",
         "pinterest","dropbox","cloudflare","lyft","instacart","reddit","brex","figma","airbnb",
         "10xgenomics","ginkgobioworks","insitro","recursion","denalitherapeutics","beamtx","relaytx",
         "generatebiomedicines","benchling","scaleai","anduril","snyk","grafana","hashicorp"
@@ -87,48 +87,87 @@ def detect_remote(text: str) -> bool:
     return any(p in t for p in ['remote','hybrid','在家办公','远程'])
 
 
-def http_get_json(url: str):
+def http_get(url: str, expect_json: bool = False):
     try:
         r = requests.get(url, headers=UA, timeout=REQ_TIMEOUT)
         if r.status_code == 200:
-            return r.json()
+            return r.json() if expect_json else r.text
         logger.warning(f"GET {url} -> {r.status_code}")
     except Exception as e:
         logger.warning(f"GET {url} failed: {e}")
     return None
 
-# ================== 抓取 GH / Lever ==================
+# ================== Greenhouse 抓取（带 token 自动发现） ==================
+
+def gh_discover_token(slug: str) -> Optional[str]:
+    """
+    访问 https://boards.greenhouse.io/<slug> 页面，解析嵌入的 job_board?for=<token>
+    有些 slug 与 token 不同，此方法可修正 404。
+    """
+    html = http_get(f"https://boards.greenhouse.io/{slug}", expect_json=False)
+    if not html:
+        return None
+    # 常见两种写法：
+    # 1) https://boards.greenhouse.io/embed/job_board?for=<token>
+    # 2) data-mapped-attributes='{"apiToken":"<token>"...}'
+    m = re.search(r'job_board\?for=([a-z0-9\-]+)', html, flags=re.I)
+    if m:
+        return m.group(1).lower()
+    m2 = re.search(r'"apiToken"\s*:\s*"([a-z0-9\-]+)"', html, flags=re.I)
+    if m2:
+        return m2.group(1).lower()
+    return None
+
 
 def fetch_greenhouse(board: str) -> List[Dict[str, Any]]:
-    data = http_get_json(f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true")
-    res = []
-    if not data or 'jobs' not in data:
+    """
+    先按 board 直接请求；404 时尝试自动发现 token 再请求。
+    """
+    def _fetch(token: str) -> List[Dict[str, Any]]:
+        data = http_get(f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true", expect_json=True)
+        res = []
+        if not data or 'jobs' not in data:
+            return res
+        for j in data['jobs']:
+            try:
+                jd_url = j.get('absolute_url') or ''
+                title = j.get('title') or ''
+                location = (j.get('location') or {}).get('name','')
+                desc = strip_html(j.get('content') or '')
+                tags = []
+                if zero_exp_friendly(desc): tags.append('zero_exp_friendly')
+                if detect_remote(desc) or 'remote' in (location or '').lower(): tags.append('remote')
+                res.append({
+                    'id': f"gh-{j.get('id')}", 'source':'greenhouse', 'company': token, 'title': title,
+                    'location': location, 'remote': 'remote' in tags, 'level':'', 'salary':'', 'jd_url': jd_url,
+                    'description': desc[:5000], 'tags': tags, 'posted_at': j.get('updated_at') or j.get('created_at') or ''
+                })
+            except Exception:
+                continue
         return res
-    for j in data['jobs']:
-        try:
-            jd_url = j.get('absolute_url') or ''
-            title = j.get('title') or ''
-            location = (j.get('location') or {}).get('name','')
-            desc = strip_html(j.get('content') or '')
-            tags = []
-            if zero_exp_friendly(desc): tags.append('zero_exp_friendly')
-            if detect_remote(desc) or 'remote' in (location or '').lower(): tags.append('remote')
-            res.append({
-                'id': f"gh-{j.get('id')}", 'source':'greenhouse', 'company': board, 'title': title,
-                'location': location, 'remote': 'remote' in tags, 'level':'', 'salary':'', 'jd_url': jd_url,
-                'description': desc[:5000], 'tags': tags, 'posted_at': j.get('updated_at') or j.get('created_at') or ''
-            })
-        except Exception:
-            continue
-    return res
 
+    rows = _fetch(board)
+    if rows:
+        return rows
+    # 可能 404：尝试自动发现
+    token = gh_discover_token(board)
+    if token and token != board:
+        logger.info(f"Greenhouse token discovered: {board} -> {token}")
+        return _fetch(token)
+    return []
+
+# ================== Lever 抓取 ==================
 
 def fetch_lever(company: str) -> List[Dict[str, Any]]:
-    data = http_get_json(f"https://api.lever.co/v0/postings/{company}?mode=json")
+    data = http_get(f"https://api.lever.co/v0/postings/{company}?mode=json", expect_json=True)
     res = []
-    if not data:
+    if not data or (isinstance(data, dict) and data.get('error')):
         return res
-    for j in data:
+    if isinstance(data, dict) and 'data' in data and isinstance(data['data'], list):
+        iterable = data['data']
+    else:
+        iterable = data if isinstance(data, list) else []
+    for j in iterable:
         try:
             jd_url = j.get('hostedUrl') or j.get('applyUrl') or ''
             title = j.get('text') or ''
@@ -147,6 +186,7 @@ def fetch_lever(company: str) -> List[Dict[str, Any]]:
             continue
     return res
 
+# ================== 种子与刷新 ==================
 
 def load_seeds() -> Dict[str, List[str]]:
     # 优先读取文件；为空/无效时回退到内置 DEFAULT_SEEDS
@@ -204,17 +244,23 @@ IMPORTS = _try_imports()
 
 
 def extract_text_from_file(fs) -> str:
-    name = (fs.filename or '').lower(); data = fs.read(); fs.stream.seek(0)
+    if not fs:
+        return ''
+    name = (fs.filename or '').lower()
+    data = fs.read()
+    fs.stream.seek(0)
     if name.endswith('.pdf') and IMPORTS['PyPDF2']:
         try:
             reader = IMPORTS['PyPDF2'].PdfReader(io.BytesIO(data))
             return '\n'.join([(p.extract_text() or '') for p in reader.pages])
-        except Exception: pass
+        except Exception:
+            pass
     if name.endswith('.docx') and IMPORTS['docx']:
         try:
             doc = IMPORTS['docx'].Document(io.BytesIO(data))
             return '\n'.join(p.text for p in doc.paragraphs)
-        except Exception: pass
+        except Exception:
+            pass
     try:
         return data.decode('utf-8', errors='ignore')
     except Exception:
@@ -238,13 +284,17 @@ def call_llm(system_prompt: str, user_prompt: str, temperature=0.2, max_tokens=1
 
 
 def summarize_resume(raw: str, lang: str = 'zh') -> str:
+    if not raw:
+        return ''
     sys_p = "You analyze resumes and return a concise, ATS-friendly profile with bullet points."
     usr_p = (f"LANG={lang}. Extract: 1) Professional Summary (<=120 words). 2) Key Skills (<=15). 3) Experience Highlights (<=8). 4) Education.\n\nResume:\n{raw[:15000]}")
     ans = call_llm(sys_p, usr_p)
-    return ans or (raw[:600] if raw else '')
+    return ans or raw[:600]
 
 
 def optimize_resume(profile: str, lang: str='zh') -> str:
+    if not profile:
+        return ''
     sys_p = "You are a resume coach. Improve wording, quantify results, add keywords for ATS, keep it concise and professional."
     usr_p = f"LANG={lang}. Improve the following resume content and return an optimized version.\n\n{profile[:8000]}"
     ans = call_llm(sys_p, usr_p, temperature=0.3, max_tokens=1500)
@@ -280,6 +330,8 @@ def match_with_llm(profile: str, jd: str, title: str='') -> Dict[str, Any]:
 
 
 def topk_match(profile: str, jobs: List[Dict[str,Any]], k: int=8) -> List[Dict[str,Any]]:
+    if not profile:
+        return []
     # 隐式粗筛（不展示）：按关键词重叠排序取前20，再调用 LLM 精排取前K
     jobs0 = sorted(jobs, key=lambda r: match_rule_overlap(profile, (r.get('title','')+' '+r.get('description',''))), reverse=True)[:20]
     scored = []
