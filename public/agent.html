@@ -3,9 +3,9 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LGWORK • 求职入口（Patch B）</title>
+<title>LGWORK • 求职入口（Patch B’）</title>
 <style>
-  :root{--pri:#0a66c2;--bg:#f3f2ef;--fg:#091e42;--muted:#5e6c84;--card:#fff;--border:#e0e0e0;--good:#17a34a}
+  :root{--pri:#0a66c2;--bg:#f3f2ef;--fg:#091e42;--muted:#5e6c84;--card:#fff;--border:#e0e0e0;--good:#17a34a;--warn:#b45309}
   body{font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0}
   .wrap{max-width:1200px;margin:0 auto;padding:24px}
   h2{margin:0 0 10px}
@@ -13,11 +13,14 @@
   .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px}
   .btn{background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 16px;cursor:pointer}
   .btn.secondary{background:#455a64}
+  .btn[disabled]{opacity:.6;cursor:not-allowed}
   input,textarea,select{width:100%;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px;font-family:inherit}
   .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
   .muted{color:var(--muted)}
   .progress{height:8px;background:#e9eef5;border-radius:999px;overflow:hidden;margin:10px 0}
   .progress>i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--pri),#2b8be6);transition:width .5s ease}
+  .pulse>i{animation:pulse 1.2s ease-in-out infinite}
+  @keyframes pulse{0%{opacity:.45}50%{opacity:1}100%{opacity:.45}}
   .mono{white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace}
   .cursor{display:inline-block;width:8px;height:1em;background:#111;animation:blink 1s step-end infinite}
   @keyframes blink{50%{opacity:0}}
@@ -28,6 +31,7 @@
   .job.selected{outline:2px solid var(--pri);box-shadow:0 0 0 2px rgba(10,102,194,.15) inset}
   .score{color:var(--good);font-weight:600}
   .pill{display:inline-block;border:1px solid var(--border);border-radius:999px;padding:3px 8px;font-size:12px;margin-right:6px}
+  .warn{color:var(--warn)}
 </style>
 </head>
 <body>
@@ -40,11 +44,11 @@
       <div class="row">
         <input type="file" id="file" accept=".pdf,.doc,.docx,.txt" style="max-width:360px"/>
         <select id="lang" style="max-width:160px"><option value="zh">中文</option><option value="en">English</option></select>
-        <button class="btn" id="btnRun">一键匹配 </button>
+        <button class="btn" id="btnRun">一键匹配（解析→优化→TopK）</button>
       </div>
       <div style="margin:8px 0">或在下方粘贴简历原文：</div>
       <textarea id="resumetext" rows="8" placeholder="在此粘贴简历…"></textarea>
-      <div class="progress"><i id="p1"></i></div>
+      <div class="progress" id="prog1"><i></i></div>
       <div id="status" class="muted">就绪</div>
       <div id="profile" class="mono" style="margin-top:10px"></div>
     </div>
@@ -53,9 +57,9 @@
     <div class="card">
       <div class="row" style="justify-content:space-between">
         <h3 style="margin:0">Top 匹配职位</h3>
-        <a class="muted" href="/public/admin.html" target="_blank">先去抓取职位 ↗</a>
+        <a class="muted" href="/public/admin.html?admin=1" target="_blank">（需更多职位？去后台抓取 ↗）</a>
       </div>
-      <div class="progress"><i id="p2"></i></div>
+      <div class="progress" id="prog2"><i></i></div>
       <div id="jobs"></div>
 
       <div style="margin-top:14px;border-top:1px dashed var(--border);padding-top:12px">
@@ -65,7 +69,7 @@
           <select id="tpl" style="max-width:160px"><option value="1">模板 1</option><option value="2">模板 2</option></select>
           <button class="btn secondary" id="btnGen">针对选中职位生成</button>
         </div>
-        <div class="progress"><i id="p3"></i></div>
+        <div class="progress" id="prog3"><i></i></div>
         <div id="resume" class="mono" style="margin-top:8px"></div>
       </div>
     </div>
@@ -78,7 +82,8 @@ let PROFILE = ''
 let PROFILE_OPT = ''
 let SELECTED_JOB = null
 
-function setProg(id, v){ $(id).style.width = Math.max(0, Math.min(100, v)) + '%' }
+function setProg(el, v){ el.querySelector('i').style.width = Math.max(0, Math.min(100, v)) + '%' }
+function pulse(el, on){ el.classList.toggle('pulse', !!on) }
 function tw(el, text){
   el.innerHTML = ''
   const cursor=document.createElement('span');cursor.className='cursor';
@@ -93,13 +98,13 @@ function tw(el, text){
   })()
 }
 function esc(s){ return (s||'').replaceAll('&','&amp;').replaceAll('<','&lt;') }
-function skeletonJobs(n=5){ $('#jobs').innerHTML = Array.from({length:n}).map(()=>'<div class="skeleton"></div>').join('') }
+function skeletonJobs(n=6){ $('#jobs').innerHTML = Array.from({length:n}).map(()=>'<div class="skeleton"></div>').join('') }
 
 async function runPipeline(){
   try{
     $('#btnRun').disabled = true
-    $('#status').textContent = '开始：解析简历（AI 引擎）…'
-    setProg('#p1', 10)
+    $('#status').textContent = '开始：解析简历…'
+    pulse($('#prog1'), true); setProg($('#prog1'), 10)
 
     // Step 1: 解析
     const fd = new FormData()
@@ -109,28 +114,29 @@ async function runPipeline(){
     fd.append('text', $('#resumetext').value)
     const r1 = await fetch('/api/resume/parse', {method:'POST', body: fd})
     const d1 = await r1.json()
-    setProg('#p1', 40)
+    setProg($('#prog1'), 40)
     const parsed = (typeof d1.profile === 'string') ? d1.profile : (d1.profile?.summary || JSON.stringify(d1.profile||{}))
     PROFILE = parsed || ''
-    if(PROFILE){ tw($('#profile'), PROFILE) }
+    if(!PROFILE){ $('#status').innerHTML = '<span class="warn">未获取到简历内容，请检查文件/文本。</span>'; pulse($('#prog1'), false); setProg($('#prog1'), 0); return }
+    tw($('#profile'), PROFILE)
     $('#status').textContent = '已解析，正在优化简历要点…'
 
     // Step 2: 优化
     const r2 = await fetch('/api/resume/optimize', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ text: PROFILE || $('#resumetext').value, lang: $('#lang').value })})
     const d2 = await r2.json()
-    setProg('#p1', 70)
+    setProg($('#prog1'), 70)
     PROFILE_OPT = d2.text || PROFILE
-    if(PROFILE_OPT){ tw($('#profile'), PROFILE_OPT) }
+    tw($('#profile'), PROFILE_OPT)
 
     // Step 3: TopK 匹配
     $('#status').textContent = '正在匹配职位（TopK）…'
-    skeletonJobs(6); setProg('#p2', 30)
+    skeletonJobs(6); pulse($('#prog2'), true); setProg($('#prog2'), 30)
     const r3 = await fetch('/api/match/topk', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ profile: PROFILE_OPT || PROFILE, k: 8 })})
     const d3 = await r3.json()
     const arr = d3.items || []
-    setProg('#p2', 85)
+    setProg($('#prog2'), 85)
     if(!arr.length){
-      $('#jobs').innerHTML = `<div class='muted'>暂无匹配结果。可先去 <a href='/public/admin.html' target='_blank'>Admin</a> 抓取职位。</div>`
+      $('#jobs').innerHTML = `<div class='muted'>暂无匹配结果。可先去 <a href='/public/admin.html?admin=1' target='_blank'>后台</a> 抓取更多职位，然后重试。</div>`
     } else {
       $('#jobs').innerHTML = arr.map((x,i)=>`<div class='job' data-i='${i}'>
         <div><b>${esc(x.title)}</b> · ${esc(x.company)} <span class='muted'>${esc(x.location||'')}</span> <span class='score'>${x.match?.score||''}/100</span></div>
@@ -149,12 +155,13 @@ async function runPipeline(){
         el.onclick = ()=>{ [...document.querySelectorAll('.job')].forEach(e=>e.classList.remove('selected')); el.classList.add('selected'); SELECTED_JOB = arr[Number(el.dataset.i)] }
       })
     }
-    setProg('#p1', 100); setProg('#p2', 100)
+    setProg($('#prog1'), 100); setProg($('#prog2'), 100)
     $('#status').textContent = '完成：已给出 Top 匹配结果'
   }catch(e){
     console.error(e)
-    $('#status').textContent = '出错了，请重试或更换简历文件/文本。'
+    $('#status').innerHTML = '<span class="warn">出错了，请重试或更换简历文件/文本。</span>'
   }finally{
+    pulse($('#prog1'), false); pulse($('#prog2'), false)
     $('#btnRun').disabled = false
   }
 }
@@ -164,7 +171,7 @@ $('#btnRun').onclick = runPipeline
 $('#btnGen').onclick = async ()=>{
   if(!(PROFILE_OPT || PROFILE)){ alert('请先完成一键匹配（会生成画像）'); return }
   if(!SELECTED_JOB){ alert('请先选择一个职位'); return }
-  setProg('#p3', 25)
+  pulse($('#prog3'), true); setProg($('#prog3'), 25)
   const r = await fetch('/api/resume/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({
     resume_profile: PROFILE_OPT || PROFILE,
     job_desc: SELECTED_JOB.description || '',
@@ -172,9 +179,9 @@ $('#btnGen').onclick = async ()=>{
     template: $('#tpl').value
   })})
   const d = await r.json()
-  setProg('#p3', 85)
+  setProg($('#prog3'), 85)
   tw($('#resume'), d.text || '')
-  setTimeout(()=>setProg('#p3', 100), 250)
+  setTimeout(()=>{ setProg($('#prog3'), 100); pulse($('#prog3'), false) }, 250)
 }
 </script>
 </body>
