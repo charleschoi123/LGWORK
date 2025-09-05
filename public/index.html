@@ -1,9 +1,42 @@
 <!doctype html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <meta http-equiv="refresh" content="0; url=./agent.html" />
-    <title>LGWORK</title>
-  </head>
-  <body>Redirecting to <a href="./agent.html">agent.html</a>…</body>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>LGWORK</title>
+<style>
+  :root{--pri:#0a66c2;--bg:#f3f2ef;--fg:#091e42;--muted:#5e6c84;--card:#fff;--border:#e0e0e0}
+  body{font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0}
+  .wrap{max-width:1080px;margin:0 auto;padding:32px}
+  .hero{display:flex;align-items:center;justify-content:space-between;gap:24px}
+  h1{font-weight:700;margin:0 0 8px}
+  .sub{color:var(--muted)}
+  .cards{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:22px}
+  .btn{display:inline-block;background:var(--pri);color:#fff;text-decoration:none;padding:10px 16px;border-radius:10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hero">
+    <div>
+      <h1>LGWORK • AI 职业与招聘平台</h1>
+      <div class="sub">面向企业与求职者的智能助手。</div>
+    </div>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h3>我是来找人的（B端）</h3>
+      <p class="sub">上传/粘贴 JD，或用自然语言描述需求，由 AI 梳理并生成 JD；可继续进行候选人画像与匹配。</p>
+      <a class="btn" href="./employer.html">进入企业入口</a>
+    </div>
+    <div class="card">
+      <h3>我是来找工作的（C端）</h3>
+      <p class="sub">上传或粘贴简历，获取画像与优化建议，并智能推荐合适职位与定制简历。</p>
+      <a class="btn" href="./agent.html">进入求职入口</a>
+    </div>
+  </div>
+</div>
+</body>
 </html>
