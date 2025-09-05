@@ -5,109 +5,51 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>LGWORK • Admin</title>
 <style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;max-width:1100px;margin:0 auto;padding:24px;background:#0b0f14;color:#e6edf3}
-  h1{font-size:22px;margin:0 0 8px}
-  .bar{display:flex;gap:12px;align-items:center;margin:12px 0 20px}
-  button{background:#1f6feb;border:0;color:white;padding:10px 14px;border-radius:10px;cursor:pointer}
-  button:disabled{opacity:.6}
-  .card{background:#0d1117;border:1px solid #30363d;border-radius:14px;padding:14px;margin:10px 0}
-  .muted{color:#9da7b3}
-  .flex{display:flex;gap:8px;align-items:center}
-  input,select{background:#0b0f14;border:1px solid #30363d;color:#e6edf3;border-radius:10px;padding:8px}
-  .kpi{display:flex;gap:16px;margin:8px 0 6px}
-  .kpi .box{background:#0d1117;border:1px solid #30363d;border-radius:12px;padding:10px 14px}
-  .skeleton{position:relative;overflow:hidden;background:#0d1117;border:1px solid #30363d;border-radius:12px;height:64px}
-  .skeleton::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent);animation:shimmer 1.4s infinite}
-  @keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+  :root{--pri:#0a66c2;--bg:#f3f2ef;--fg:#091e42;--muted:#5e6c84;--card:#fff;--border:#e0e0e0}
+  body{font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0}
+  .wrap{max-width:1080px;margin:0 auto;padding:24px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;margin:12px 0}
+  .btn{background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 16px;cursor:pointer}
+  input,select{background:#fff;border:1px solid var(--border);border-radius:10px;padding:8px}
+  .muted{color:var(--muted)}
 </style>
 </head>
 <body>
-  <h1>LGWORK • Admin（职位抓取）</h1>
-  <div class="bar">
-    <button id="btnFetch">一键抓取（Greenhouse+Lever）</button>
-    <div class="muted">最近更新：<span id="lastUpdated">—</span></div>
-    <div class="muted">总职位：<b id="totalCount">0</b></div>
-    <div id="badge" class="muted"></div>
+<div class="wrap">
+  <h2>职位抓取</h2>
+  <div class="card">
+    <button class="btn" id="btnFetch">一键抓取（Greenhouse + Lever）</button>
+    <div class="muted" id="hint" style="margin-top:6px">若未上传 <code>data/seed_sources.json</code> 或为空，系统会自动使用内置种子列表。</div>
+    <div style="margin-top:8px">最近更新：<span id="last">—</span>｜总职位：<b id="count">0</b></div>
   </div>
 
   <div class="card">
-    <div class="flex" style="gap:12px;flex-wrap:wrap">
-      <input id="q" placeholder="关键词，如：biologist / Shanghai" />
-      <input id="loc" placeholder="地点关键字，如：Shanghai" />
-      <select id="remote">
-        <option value="">远程：不限</option>
-        <option value="true">只看远程/Hybrid</option>
-        <option value="false">排除远程</option>
-      </select>
-      <select id="zero">
-        <option value="">零经验友好：不限</option>
-        <option value="true">只看零经验/转行友好</option>
-        <option value="false">排除零经验友好</option>
-      </select>
-      <button id="btnFilter">筛选</button>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <input id="q" placeholder="关键词"/>
+      <input id="loc" placeholder="地点"/>
+      <select id="remote"><option value="">远程不限</option><option value="true">只看远程</option><option value="false">排除远程</option></select>
+      <select id="zero"><option value="">零经验不限</option><option value="true">只看零经验友好</option><option value="false">排除零经验友好</option></select>
+      <button class="btn" id="btn">筛选</button>
     </div>
+    <div id="list" style="margin-top:10px"></div>
   </div>
-
-  <div id="list"></div>
-
+</div>
 <script>
-const $ = sel => document.querySelector(sel)
-const list = $('#list')
-
-function skeleton(n=6){
-  list.innerHTML = Array.from({length:n}).map(()=>`<div class="skeleton"></div>`).join('')
+const $=s=>document.querySelector(s)
+$('#btnFetch').onclick=async()=>{const r=await fetch('/api/jobs/refresh',{method:'POST'});const d=await r.json();$('#count').textContent=d.count;$('#last').textContent=new Date().toLocaleString();load()}
+$('#btn').onclick=load
+async function load(){
+  const p=new URLSearchParams({q:$('#q').value,location:$('#loc').value,remote:$('#remote').value,zero_exp:$('#zero').value,limit:200})
+  const r=await fetch('/api/jobs/list?'+p.toString()); const d=await r.json()
+  $('#count').textContent=d.count
+  $('#list').innerHTML=(d.items||[]).map(x=>`<div style='border:1px solid var(--border);border-radius:12px;padding:12px;margin:8px 0;background:#fff'>
+    <div><b>${esc(x.title)}</b> · ${esc(x.company)} <span class='muted'>${esc(x.location||'')}</span> ${x.remote?'· Remote':''}</div>
+    <div class='muted' style='margin-top:4px;font-size:13px'>${esc((x.description||'').slice(0,200))}…</div>
+    <div style='margin-top:6px'><a href='${x.jd_url}' target='_blank'>申请链接 ↗</a></div>
+  </div>`).join('')
 }
-
-async function fetchJobs(){
-  $('#btnFetch').disabled = true
-  skeleton(8)
-  const r = await fetch('/api/jobs/refresh', {method:'POST'})
-  const d = await r.json()
-  $('#btnFetch').disabled = false
-  if(!d.ok){ alert('抓取失败'); return }
-  $('#totalCount').textContent = d.count
-  $('#lastUpdated').textContent = new Date().toLocaleString()
-  $('#badge').textContent = d.count >= 1000 ? '✅ 已达成展示目标（≥1000）' : '⚠️ 少于1000，建议再点一次或稍后重试'
-  await applyFilter()
-}
-
-async function applyFilter(){
-  skeleton(6)
-  const params = new URLSearchParams({
-    q: $('#q').value.trim(),
-    location: $('#loc').value.trim(),
-    remote: $('#remote').value,
-    zero_exp: $('#zero').value,
-    limit: 200
-  })
-  const r = await fetch('/api/jobs/list?' + params.toString())
-  const d = await r.json()
-  $('#totalCount').textContent = d.count
-  list.innerHTML = (d.items||[]).map(row => `
-    <div class='card'>
-      <div class='flex' style='justify-content:space-between'>
-        <div>
-          <div><b>${escapeHtml(row.title||'')}</b> · ${escapeHtml(row.company||'')}</div>
-          <div class='muted'>${escapeHtml(row.location||'')} ${row.remote? '· Remote/Hybrid':''}</div>
-        </div>
-        <a href='${row.jd_url}' target='_blank'>申请链接 ↗</a>
-      </div>
-      <div class='muted' style='margin-top:8px;font-size:13px'>${escapeHtml((row.description||'').slice(0,200))}…</div>
-      <div style='margin-top:8px'>
-        ${(row.tags||[]).map(t=>`<span style='font-size:11px;border:1px solid #30363d;border-radius:999px;padding:3px 8px;margin-right:6px'>${t}</span>`).join('')}
-      </div>
-    </div>
-  `).join('')
-}
-
-function escapeHtml(s){
-  return (s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')
-}
-
-$('#btnFetch').onclick = fetchJobs
-$('#btnFilter').onclick = applyFilter
-
-applyFilter()
+function esc(s){return (s||'').replaceAll('&','&amp;').replaceAll('<','&lt;')}
+load()
 </script>
 </body>
 </html>
