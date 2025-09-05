@@ -3,156 +3,105 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LGWORK • AI Agent</title>
+<title>LGWORK • 求职入口</title>
 <style>
-  :root{--bg:#0b0f14;--fg:#e6edf3;--muted:#9da7b3;--card:#0d1117;--border:#30363d;--pri:#1f6feb}
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;background:var(--bg);color:var(--fg);margin:0}
-  .wrap{max-width:1100px;margin:0 auto;padding:24px}
-  h1{font-size:22px;margin:0 0 12px}
-  .row{display:grid;grid-template-columns:1.1fr .9fr;gap:16px}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px}
-  .muted{color:var(--muted)}
-  .btn{background:var(--pri);border:0;color:#fff;padding:10px 14px;border-radius:10px;cursor:pointer}
-  input,select,textarea{background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:10px;padding:8px}
-  .skeleton{position:relative;overflow:hidden;background:var(--card);border:1px solid var(--border);border-radius:12px;height:72px;margin:6px 0}
-  .skeleton::after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.06),transparent);animation:shimmer 1.4s infinite}
-  @keyframes shimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
-  .chips span{font-size:12px;border:1px solid var(--border);border-radius:999px;padding:4px 8px;margin-right:6px}
-  .progress{height:6px;background:#111;border-radius:6px;overflow:hidden;border:1px solid var(--border);margin:8px 0}
+  :root{--pri:#0a66c2;--bg:#f3f2ef;--fg:#091e42;--muted:#5e6c84;--card:#fff;--border:#e0e0e0}
+  body{font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0}
+  .wrap{max-width:1080px;margin:0 auto;padding:24px}
+  .grid{display:grid;grid-template-columns:1.1fr .9fr;gap:18px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px}
+  .btn{background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 16px;cursor:pointer}
+  input,textarea,select{width:100%;background:#fff;border:1px solid var(--border);border-radius:10px;padding:10px;font-family:inherit}
+  .progress{height:6px;background:#e9eef5;border-radius:6px;overflow:hidden;margin:8px 0}
   .progress>i{display:block;height:100%;width:0;background:var(--pri);transition:width .45s ease}
-  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;white-space:pre-wrap}
-  .cursor{display:inline-block;width:10px;background:#fff;height:1em;animation:blink 1s step-end infinite}
-  @keyframes blink{50%{opacity:0}}
+  .mono{white-space:pre-wrap;font-family:ui-monospace,Menlo,Consolas,monospace}
+  .muted{color:var(--muted)}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h1>LGWORK • 求职智能体（MVP）</h1>
-  <div class="muted" style="margin-bottom:12px">上传简历 → AI 解析画像（流式） → 选职位 → 智能匹配（打字机效果） → 生成 ATS 简历（中/英）。</div>
-
-  <div class="row">
+  <h2>求职入口</h2>
+  <div class="grid">
     <div class="card">
-      <div><b>① 上传简历</b> <span class="muted">PDF/DOCX/TXT</span></div>
-      <div style="margin-top:8px" class="flex">
-        <input type="file" id="file" accept=".pdf,.doc,.docx,.txt" />
+      <h3>上传或粘贴简历</h3>
+      <input type="file" id="file" accept=".pdf,.doc,.docx,.txt" />
+      <div style="margin:8px 0">或</div>
+      <textarea id="resumetext" rows="8" placeholder="在此粘贴简历原文…"></textarea>
+      <div class="progress"><i id="p1"></i></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
         <select id="lang"><option value="zh">中文</option><option value="en">English</option></select>
-        <button class="btn" id="btnParse">解析画像</button>
+        <button class="btn" id="btnParse">获取画像</button>
+        <button class="btn" id="btnOpt">优化简历</button>
       </div>
-      <div class="progress"><i id="prog1"></i></div>
-      <div id="profile" class="mono"></div>
+      <div id="profile" class="mono" style="margin-top:10px"></div>
     </div>
 
     <div class="card">
-      <div><b>② 选择职位并匹配</b></div>
-      <div style="margin-top:6px" class="muted">可在左上角 <a href="/public/admin.html" target="_blank">Admin</a> 先抓取职位。</div>
-      <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
-        <input id="query" placeholder="关键词，如：biology / Shanghai"/>
-        <button class="btn" id="btnLoadJobs">加载职位</button>
-      </div>
-      <div id="jobs" style="max-height:260px;overflow:auto;margin-top:8px"></div>
-      <button class="btn" id="btnMatch" style="margin-top:8px">匹配所选</button>
-      <div class="progress"><i id="prog2"></i></div>
-      <div id="match" class="mono"></div>
+      <h3>为我找合适的职位</h3>
+      <div class="muted">系统将先做内部筛选，然后给出最匹配的前 5–10 条。</div>
+      <div class="progress"><i id="p2"></i></div>
+      <button class="btn" id="btnTopK">开始匹配</button>
+      <div id="topk"></div>
     </div>
   </div>
 
   <div class="card" style="margin-top:16px">
-    <div><b>③ 一键生成 ATS 简历</b></div>
-    <div style="margin-top:6px;display:flex;gap:8px;flex-wrap:wrap">
+    <h3>生成 ATS 简历</h3>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
       <select id="lang2"><option value="zh">中文</option><option value="en">English</option></select>
       <select id="tpl"><option value="1">模板 1</option><option value="2">模板 2</option></select>
       <button class="btn" id="btnGen">生成</button>
     </div>
-    <div class="progress"><i id="prog3"></i></div>
-    <div id="resume" class="mono"></div>
+    <div class="progress"><i id="p3"></i></div>
+    <div id="resume" class="mono" style="margin-top:10px"></div>
   </div>
 </div>
-
 <script>
-const $ = s => document.querySelector(s)
-let g_profileText = ''
-let g_selectedJob = null
-
-function typewriter(el, text){
-  el.innerHTML=''
-  const cursor = document.createElement('span'); cursor.className='cursor'
-  el.appendChild(cursor)
-  let i=0
-  function tick(){
-    const chunk = text.slice(i, i+Math.max(1, Math.floor(Math.random()*3)))
-    cursor.insertAdjacentText('beforebegin', chunk)
-    i += chunk.length
-    if(i < text.length){ requestAnimationFrame(tick) } else { cursor.remove() }
-  }
-  tick()
-}
-
-function setProgress(id, val){ $(id).style.width = Math.max(0, Math.min(100, val)) + '%'}
-
-function escapeHtml(s){return (s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;')}
+const $=s=>document.querySelector(s)
+function setProg(id,v){$(id).style.width=v+'%'}
+function tw(el, text){ el.textContent=''; let i=0; (function t(){ el.textContent+=text.slice(i,i+2); i+=2; if(i<text.length) requestAnimationFrame(t) })() }
+let PROFILE=''; let LAST_JOBDESC=''
 
 $('#btnParse').onclick = async ()=>{
-  const f = $('#file').files[0]
-  if(!f){ alert('请选择文件'); return }
-  setProgress('#prog1', 15)
-  const fd = new FormData(); fd.append('file', f); fd.append('lang', $('#lang').value)
-  const t0 = Date.now()
-  const r = await fetch('/api/resume/parse', {method:'POST', body:fd})
-  setProgress('#prog1', 50)
-  const d = await r.json()
-  if(!d.ok){ alert('解析失败'); return }
-  const txt = (d.profile.summary||'').trim() || '（解析成功，但内容较少）'
-  g_profileText = txt
-  const cost = Date.now()-t0
-  setTimeout(()=>{ setProgress('#prog1', 100) }, Math.max(0, 600 - cost))
-  typewriter($('#profile'), txt)
+  setProg('#p1',20)
+  const fd=new FormData(); const f=$('#file').files[0]; if(f) fd.append('file', f); fd.append('lang',$('#lang').value); fd.append('text',$('#resumetext').value)
+  const r=await fetch('/api/resume/parse',{method:'POST',body:fd}); const d=await r.json(); setProg('#p1',80)
+  PROFILE = d.profile || d.profile?.summary || d.profile || ''
+  tw($('#profile'), (d.profile?.summary||d.profile||'').toString())
+  setTimeout(()=>setProg('#p1',100),300)
 }
 
-$('#btnLoadJobs').onclick = async ()=>{
-  const p = new URLSearchParams({ q: $('#query').value.trim(), limit: 200 })
-  const r = await fetch('/api/jobs/list?'+p.toString())
-  const d = await r.json()
-  const arr = d.items||[]
-  $('#jobs').innerHTML = arr.map((x,i)=>`
-    <label style='display:block;border:1px solid #30363d;border-radius:10px;padding:8px;margin:6px 0;cursor:pointer'>
-      <input type='radio' name='jj' value='${i}'/>
-      <b>${escapeHtml(x.title||'')}</b> · ${escapeHtml(x.company||'')} <span class='muted'>${escapeHtml(x.location||'')}</span>
-      <div class='muted' style='margin-top:4px;font-size:12px'>${escapeHtml((x.description||'').slice(0,140))}…</div>
-      <div class='chips' style='margin-top:6px'>${(x.tags||[]).map(t=>`<span>${t}</span>`).join('')}</div>
-      <div style='margin-top:6px'><a href='${x.jd_url}' target='_blank'>申请链接 ↗</a></div>
-    </label>`).join('')
-  $('#jobs').dataset.json = JSON.stringify(arr)
+$('#btnOpt').onclick = async ()=>{
+  if(!PROFILE && !$('#resumetext').value){ alert('请先上传或粘贴简历'); return }
+  setProg('#p1',30)
+  const r=await fetch('/api/resume/optimize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text: $('#resumetext').value || PROFILE, lang: $('#lang').value})});
+  const d=await r.json(); setProg('#p1',90); tw($('#profile'), d.text||''); setTimeout(()=>setProg('#p1',100),300)
 }
 
-$('#btnMatch').onclick = async ()=>{
-  const arr = JSON.parse($('#jobs').dataset.json||'[]')
-  const idx = [...document.querySelectorAll("input[name='jj']")].find(i=>i.checked)?.value
-  if(idx==null){ alert('请选择职位'); return }
-  const job = arr[Number(idx)]
-  g_selectedJob = job
-  setProgress('#prog2', 25)
-  const r = await fetch('/api/match', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
-    resume_profile: g_profileText, job_desc: job.description||'', job_title: job.title||''
-  })})
-  setProgress('#prog2', 60)
-  const d = await r.json()
-  const res = d.result
-  const text = `匹配分：${res.score}/100\n\n命中要点：\n- ${(res.analysis.top_matches||[]).join('\n- ') || '（略）'}\n\n补强建议：\n- ${(res.analysis.gaps||[]).join('\n- ') || '（略）'}\n\n投递建议：\n- ${(res.analysis.advice||[]).join('\n- ') || '（可直接投递）'}`
-  setTimeout(()=> setProgress('#prog2', 100), 400)
-  typewriter($('#match'), text)
+$('#btnTopK').onclick = async ()=>{
+  if(!PROFILE){ alert('请先获取画像'); return }
+  setProg('#p2',25)
+  const r=await fetch('/api/match/topk',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({profile:PROFILE,k:8})});
+  const d=await r.json(); setProg('#p2',80)
+  const arr=d.items||[]
+  if(!arr.length){ $('#topk').innerHTML='<div class="muted">暂无更合适的结果</div>'; setProg('#p2',100); return }
+  $('#topk').innerHTML = arr.map(x=>`<div style='border:1px solid var(--border);border-radius:12px;padding:12px;margin:10px 0;background:#fff'>
+    <div><b>${esc(x.title)}</b> · ${esc(x.company)} <span class='muted'>${esc(x.location||'')}</span> <span style='color:#0a66c2'>${x.match?.score||''}/100</span></div>
+    <div class='muted' style='margin-top:4px;font-size:13px'>${esc((x.description||'').slice(0,180))}…</div>
+    <div class='mono' style='margin-top:6px'>命中要点：\n- ${(x.match?.analysis?.top_matches||[]).join('\n- ')}</div>
+    <div style='margin-top:6px'><a href='${x.jd_url}' target='_blank'>申请链接 ↗</a></div>
+  </div>`).join('')
+  setTimeout(()=>setProg('#p2',100),300)
 }
 
 $('#btnGen').onclick = async ()=>{
-  if(!g_profileText){ alert('请先完成解析 & 匹配'); return }
-  setProgress('#prog3', 20)
-  const r = await fetch('/api/resume/generate', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({
-    resume_profile: g_profileText, job_desc: g_selectedJob?.description||'', lang: $('#lang2').value, template: $('#tpl').value
-  })})
-  const d = await r.json()
-  setProgress('#prog3', 80)
-  typewriter($('#resume'), d.text||'')
-  setTimeout(()=> setProgress('#prog3', 100), 400)
+  if(!PROFILE){ alert('请先获取画像'); return }
+  setProg('#p3',20)
+  const r=await fetch('/api/resume/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({resume_profile:PROFILE, job_desc: LAST_JOBDESC||'', lang: $('#lang2').value, template: $('#tpl').value})});
+  const d=await r.json(); setProg('#p3',90); tw($('#resume'), d.text||''); setTimeout(()=>setProg('#p3',100),300)
 }
+
+function esc(s){return (s||'').replaceAll('&','&amp;').replaceAll('<','&lt;')}
 </script>
 </body>
 </html>
