@@ -533,55 +533,7 @@ def fetch_workday_jobs(line: str, max_pages=50, page_size=50):
     # 若三条 path 都没拿到，则返回空
     return jobs if found_any else []
 # ===== end of Workday robust helpers ====
-    return None
-
-def fetch_workday_jobs(tenant, site, cluster=None, max_pages=30, page_size=50):
-    clusters_try = [cluster] if cluster else ['wd5','wd3','wd1','wd2','wd4','wd7']
-    all_items=[]
-    for c in clusters_try:
-        if not c: 
-            continue
-        host=f"https://{tenant}.{c}.myworkdayjobs.com"
-        api =f"{host}/wday/cxs/{tenant}/{site}/jobs"
-        headers={
-            "Accept":"application/json",
-            "Content-Type":"application/json",
-            "Accept-Language":"en-US,en;q=0.9,zh-CN;q=0.8",
-            "Origin":host,
-            "Referer":host,
-            "User-Agent":"Mozilla/5.0"
-        }
-        try:
-            offset=0; found=False
-            while True:
-                resp=requests.post(api, json={"limit":page_size,"offset":offset,"searchText":"","appliedFacets":{}}, headers=headers, timeout=25)
-                if resp.status_code!=200:
-                    break
-                data=resp.json()
-                arr=data.get("jobPostings",[]) or []
-                if not arr:
-                    break
-                found=True
-                for p in arr:
-                    ext=p.get("externalPath") or ""
-                    all_items.append({
-                        "id": p.get("bulletFields",[None])[0] or ext or str(uuid.uuid4()),
-                        "title": _normalize_text(p.get("title")),
-                        "company": tenant,
-                        "source": "workday",
-                        "url": host+ext if ext else host,
-                        "location": p.get("locationsText") or "",
-                        "posted_at": p.get("postedOn") or "",
-                        "tags": [f"workday:{tenant}"],
-                    })
-                offset += len(arr)
-                if len(arr)<page_size or offset>=max_pages*page_size:
-                    break
-            if found:
-                break
-        except Exception:
-            continue
-    return all_items
+   
 
 # --- Greenhouse/Lever ---
 def fetch_greenhouse_jobs(slug, limit=800):
