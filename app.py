@@ -341,27 +341,198 @@ def api_jobs():
 # =========================
 
 # --- Workday 解析（增强） ---
-def _parse_workday_line(line: str):
-    s = (line or "").strip()
-    if not s: 
+# ===== Workday robust helpers & fetcher (drop-in replacement) =====
+import re, json, time
+from urllib.parse import urlparse
+import requests
+
+def _http_json(method, url, json_body=None, headers=None, timeout=15):
+    h = {
+        "accept": "application/json, text/plain, */*",
+        "content-type": "application/json;charset=UTF-8",
+        "origin": f"{urlparse(url).scheme}://{urlparse(url).netloc}",
+        "referer": f"{urlparse(url).scheme}://{urlparse(url).netloc}/",
+        # Workday/CloudFront 对 UA 比较敏感，给一个常见桌面 UA
+        "user-agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                       "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"),
+        "accept-language": "en-US,en;q=0.9",
+    }
+    if headers:
+        h.update(headers)
+    r = requests.request(method, url, json=json_body, headers=h, timeout=timeout)
+    r.raise_for_status()
+    return r.json()
+
+def parse_workday_line(line: str):
+    """
+    支持三种输入：
+    1) 完整 URL（推荐）： https://beigene.wd5.myworkdayjobs.com/en-US/BeiGene
+    2) 域名或带路径：      beigene.wd5.myworkdayjobs.com/en-US/BeiGene
+    3) 简写 tenant/site：  beigene/BeiGene
+    返回: (tenant, site, base_url, referer)
+    """
+    s = line.strip()
+    if not s:
         return None
-    # 形式1：tenant/site@wd5
-    m = re.match(r'^([^/\s]+)/([^@\s]+)@(?:(wd\d+))$', s, re.I)
-    if m:
-        return {"tenant": m.group(1), "site": m.group(2), "cluster": m.group(3)}
-    # 形式2：tenant/site （不含集群）
-    if 'myworkdayjobs.com' not in s and '/' in s:
-        t, si = [x.strip() for x in s.split('/',1)]
-        if t and si: 
-            return {"tenant": t, "site": si, "cluster": None}
-    # 形式3：完整URL
-    m = re.search(r'https?://([^.]+)\.(wd\d+)\.myworkdayjobs\.com/(?:[a-zA-Z-]+/)?([^/?#\s]+)', s, re.I)
-    if m:
-        return {"tenant": m.group(1), "site": m.group(3), "cluster": m.group(2)}
-    # 形式4：/recruiting/tenant/site
-    m = re.search(r'https?://.+?/recruiting/([^/]+)/([^/?#\s]+)', s, re.I)
-    if m:
-        return {"tenant": m.group(1), "site": m.group(2), "cluster": None}
+
+    # 完整 URL 或省略 scheme 的域名
+    if "myworkdayjobs.com" in s:
+        if not s.startswith("http"):
+            s = "https://" + s
+        u = urlparse(s)
+        host = u.netloc  # e.g. beigene.wd5.myworkdayjobs.com
+        m = re.match(r"^([a-z0-9\-]+)\.wd\d+\.myworkdayjobs\.com$", host)
+        tenant = m.group(1) if m else host.split(".")[0]
+        # 可能有 /en-US/<site> 或 /{locale}/{site}
+        parts = [p for p in u.path.split("/") if p]
+        site = None
+        if len(parts) >= 2:
+            # 形如 en-US/BeiGene -> 取最后一个
+            site = parts[-1]
+        base = f"{u.scheme}://{host}"
+        referer = s
+        return tenant, site, base, referer
+
+    # 简写：tenant/site
+    if "/" in s:
+        tenant, site = [x.strip() for x in s.split("/", 1)]
+        base = None  # 下面会推断
+        referer = None
+        return tenant, site, base, referer
+
+    # 只有 tenant
+    tenant = s
+    return tenant, None, None, None
+
+def fetch_workday_jobs(line: str, max_pages=50, page_size=50):
+    """
+    line 是 admin 页面里每行的输入（支持 URL / 域名 / tenant/site）。
+    返回标准化 job 列表（title, company, location, url, source 等）。
+    """
+    parsed = parse_workday_line(line)
+    if not parsed:
+        return []
+
+    tenant, site, base, referer = parsed
+
+    # 没有 base 就用常规推断
+    if not base:
+        # wd 区号一般不影响 cxs 路径；默认 wd5，若不通再由 CloudFront 跳转
+        base = f"https://{tenant}.wd5.myworkdayjobs.com"
+    if not referer:
+        referer = f"{base}/"
+
+    jobs = []
+    offsets = range(0, max_pages * page_size, page_size)
+
+    # Workday 的三种常见路径，按顺序尝试，直到某条成功拿到数据
+    # 1) /wday/cxs/{tenant}/careers/jobs
+    # 2) /wday/cxs/{tenant}/career-site/jobs
+    # 3) /wday/cxs/{tenant}/{site}/jobs  (此条需带 site)
+    path_candidates = [
+        f"/wday/cxs/{tenant}/careers/jobs",
+        f"/wday/cxs/{tenant}/career-site/jobs",
+    ]
+    if site:
+        path_candidates.append(f"/wday/cxs/{tenant}/{site}/jobs")
+
+    headers = {"referer": referer}
+    found_any = False
+
+    for path in path_candidates:
+        try:
+            # 先探测第一页
+            url = base + path
+            body = {"limit": page_size, "offset": 0, "searchText": ""}
+            data = _http_json("POST", url, json_body=body, headers=headers)
+
+            # Workday 响应结构也不统一，做兼容
+            def normalize_list(payload):
+                if isinstance(payload, dict):
+                    if "jobPostings" in payload:
+                        return payload["jobPostings"]
+                    if "items" in payload:
+                        return payload["items"]
+                    if "data" in payload and isinstance(payload["data"], dict):
+                        if "jobPostings" in payload["data"]:
+                            return payload["data"]["jobPostings"]
+                        if "items" in payload["data"]:
+                            return payload["data"]["items"]
+                return []
+
+            first_items = normalize_list(data)
+            if not first_items:
+                # 这条 path 没数据，换下一条
+                continue
+
+            found_any = True
+
+            def to_job(item):
+                # 兼容不同字段名
+                title = item.get("title") or item.get("titleLocalized") or ""
+                loc = (
+                    item.get("locationsText")
+                    or item.get("locations", [{}])[0].get("displayName")
+                    or item.get("location")
+                    or ""
+                )
+                company = tenant
+                # externalPath 通常是 "/{site}/job/xxx"
+                ext = item.get("externalPath") or item.get("externalUrl") or ""
+                # 少数站点返回的是 careerSiteId + jobPostingId，需要兜底构造
+                if ext:
+                    job_url = base + ext
+                else:
+                    jid = (
+                        item.get("jobPostingId")
+                        or item.get("id")
+                        or item.get("bulletFields", [{}])[0].get("jobId")
+                    )
+                    if site and jid:
+                        job_url = f"{base}/{site}/job/{jid}"
+                    elif jid:
+                        job_url = f"{base}/job/{jid}"
+                    else:
+                        job_url = base
+
+                return {
+                    "title": title.strip(),
+                    "company": company,
+                    "location": loc.strip(),
+                    "url": job_url,
+                    "source": "workday",
+                }
+
+            # 分页拉取
+            for offset in offsets:
+                body = {"limit": page_size, "offset": offset, "searchText": ""}
+                page = _http_json("POST", url, json_body=body, headers=headers)
+                items = normalize_list(page)
+                if not items:
+                    break
+                for it in items:
+                    jobs.append(to_job(it))
+
+                # 某些返回包含 total/hasMore，可提前终止
+                if isinstance(page, dict):
+                    total = page.get("total")
+                    has_more = page.get("hasMore")
+                    if isinstance(total, int) and offset + page_size >= total:
+                        break
+                    if has_more is False:
+                        break
+
+            # 这一条 path 成功了就不要再试其他 path
+            break
+
+        except Exception as e:
+            # 换下一种 path
+            # print(f"Workday path failed: {path} -> {e}")
+            continue
+
+    # 若三条 path 都没拿到，则返回空
+    return jobs if found_any else []
+# ===== end of Workday robust helpers ====
     return None
 
 def fetch_workday_jobs(tenant, site, cluster=None, max_pages=30, page_size=50):
