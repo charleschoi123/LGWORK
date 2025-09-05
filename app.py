@@ -1,4 +1,4 @@
-import os, csv, io, re, json, time, uuid, random, logging
+import os, csv, io, re, json, time, uuid, random, logging, shutil
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
@@ -9,8 +9,10 @@ APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(APP_ROOT, 'public')
 DATA_DIR = os.path.join(APP_ROOT, 'data')
 JOBS_CSV = os.path.join(DATA_DIR, 'jobs.csv')
+JOBS_SEED_CSV = os.path.join(DATA_DIR, 'jobs_seed.csv')  # 可放入你离线导出的4K职位
 SEED_JSON = os.path.join(DATA_DIR, 'seed_sources.json')
 APPLICATIONS_CSV = os.path.join(DATA_DIR, 'applications.csv')
+CANDIDATES_CSV = os.path.join(DATA_DIR, 'candidates.csv')
 
 os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -24,20 +26,26 @@ DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY') or os.getenv('LLM_API_KEY')
 DEEPSEEK_API_BASE = os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 
-UA = {'User-Agent': 'LGWORKBot/1.0 (+https://lgwork.example)'}
-REQ_TIMEOUT = 25
+# 更像真实浏览器，且缩短超时，避免 Render 上 gunicorn 超时
+UA = {
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Accept': 'text/html,application/json;q=0.9,*/*;q=0.8',
+    'Accept-Language': 'en-US,en;q=0.8,zh;q=0.7'
+}
+REQ_TIMEOUT = 6  # 秒
 
 # ---- 内置默认 seeds（seed_sources.json 缺失/为空时使用） ----
 DEFAULT_SEEDS = {
     "greenhouse": [
-        "openai","stripe","databricks","asana","affirm","discord","doordash","coinbase",
-        "pinterest","dropbox","cloudflare","lyft","instacart","reddit","brex","figma","airbnb",
-        "10xgenomics","ginkgobioworks","insitro","recursion","denalitherapeutics","beamtx","relaytx",
-        "generatebiomedicines","benchling","scaleai","anduril","snyk","grafana","hashicorp"
+        "stripe","databricks","asana","affirm","discord","coinbase","pinterest","dropbox","cloudflare",
+        "lyft","instacart","reddit","brex","figma","airbnb","10xgenomics","benchling","scaleai","anduril",
+        "snyk","grafana","hashicorp","vercel","samsara","datadog","okta","rubrik","squarespace","hubspot",
+        "mongodb","netlify","snowflake","palantir","unity","confluent","zendesk","square","wise","revolut"
     ],
     "lever": [
-        "scaleai","reddit","turo","postman","benchling","sofi","niantic","loom","planet","opentable",
-        "remitly","affirm","bigcommerce","hopper","xero","grab","quora","gusto","doordash"
+        "reddit","turo","postman","benchling","sofi","niantic","loom","planet","opentable","remitly",
+        "affirm","bigcommerce","hopper","xero","grab","quora","gusto","doordash","planetscale","fivetran",
+        "retool","checkr","launchdarkly","airtable","figma","grammarly","carta","pilot","miro","intercom"
     ]
 }
 
@@ -63,10 +71,11 @@ def save_jobs_to_csv(rows: List[Dict[str, Any]]):
 
 
 def read_jobs_from_csv() -> List[Dict[str, Any]]:
+    path = JOBS_CSV if os.path.exists(JOBS_CSV) else (JOBS_SEED_CSV if os.path.exists(JOBS_SEED_CSV) else None)
     out = []
-    if not os.path.exists(JOBS_CSV):
+    if not path:
         return out
-    with open(JOBS_CSV, 'r', newline='', encoding='utf-8') as f:
+    with open(path, 'r', newline='', encoding='utf-8') as f:
         for r in csv.DictReader(f):
             try:
                 r['tags'] = json.loads(r.get('tags') or '[]')
@@ -97,32 +106,24 @@ def http_get(url: str, expect_json: bool = False):
         logger.warning(f"GET {url} failed: {e}")
     return None
 
-# ================== Greenhouse 抓取（带 token 自动发现） ==================
+# ================== Greenhouse 抓取（带 EU 站 + token 自动发现） ==================
 
 def gh_discover_token(slug: str) -> Optional[str]:
-    """
-    访问 https://boards.greenhouse.io/<slug> 页面，解析嵌入的 job_board?for=<token>
-    有些 slug 与 token 不同，此方法可修正 404。
-    """
-    html = http_get(f"https://boards.greenhouse.io/{slug}", expect_json=False)
-    if not html:
-        return None
-    # 常见两种写法：
-    # 1) https://boards.greenhouse.io/embed/job_board?for=<token>
-    # 2) data-mapped-attributes='{"apiToken":"<token>"...}'
-    m = re.search(r'job_board\?for=([a-z0-9\-]+)', html, flags=re.I)
-    if m:
-        return m.group(1).lower()
-    m2 = re.search(r'"apiToken"\s*:\s*"([a-z0-9\-]+)"', html, flags=re.I)
-    if m2:
-        return m2.group(1).lower()
+    """依次尝试 US/EU 站点，解析嵌入的 job_board?for=<token> 或 data 属性中的 apiToken。"""
+    for host in ("boards.greenhouse.io", "boards.eu.greenhouse.io"):
+        html = http_get(f"https://{host}/{slug}", expect_json=False)
+        if not html:
+            continue
+        m = re.search(r'job_board\?for=([a-z0-9\-]+)', html, flags=re.I)
+        if m:
+            return m.group(1).lower()
+        m2 = re.search(r'\"apiToken\"\s*:\s*\"([a-z0-9\-]+)\"', html, flags=re.I)
+        if m2:
+            return m2.group(1).lower()
     return None
 
 
 def fetch_greenhouse(board: str) -> List[Dict[str, Any]]:
-    """
-    先按 board 直接请求；404 时尝试自动发现 token 再请求。
-    """
     def _fetch(token: str) -> List[Dict[str, Any]]:
         data = http_get(f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs?content=true", expect_json=True)
         res = []
@@ -149,7 +150,6 @@ def fetch_greenhouse(board: str) -> List[Dict[str, Any]]:
     rows = _fetch(board)
     if rows:
         return rows
-    # 可能 404：尝试自动发现
     token = gh_discover_token(board)
     if token and token != board:
         logger.info(f"Greenhouse token discovered: {board} -> {token}")
@@ -186,10 +186,9 @@ def fetch_lever(company: str) -> List[Dict[str, Any]]:
             continue
     return res
 
-# ================== 种子与刷新 ==================
+# ================== 种子与刷新（分片） ==================
 
 def load_seeds() -> Dict[str, List[str]]:
-    # 优先读取文件；为空/无效时回退到内置 DEFAULT_SEEDS
     try:
         if os.path.exists(SEED_JSON):
             with open(SEED_JSON, 'r', encoding='utf-8') as f:
@@ -204,29 +203,45 @@ def load_seeds() -> Dict[str, List[str]]:
     return DEFAULT_SEEDS
 
 
-def refresh_jobs_from_seed() -> Dict[str, Any]:
+def refresh_chunk(source: str = 'both', start: int = 0, count: int = 20) -> Dict[str, Any]:
     seeds = load_seeds()
-    all_rows, seen, used = [], set(), []
+    keys = []
+    if source in ('greenhouse','both'):
+        keys += [('greenhouse', x) for x in seeds.get('greenhouse', [])]
+    if source in ('lever','both'):
+        keys += [('lever', x) for x in seeds.get('lever', [])]
 
-    for gh in seeds.get('greenhouse', []):
-        rows = fetch_greenhouse(gh)
-        if rows: used.append({"type":"greenhouse","key":gh,"count":len(rows)})
-        for r in rows:
-            key = r.get('jd_url') or r.get('id')
-            if key and key not in seen:
-                seen.add(key); all_rows.append(r)
+    total_keys = len(keys)
+    part = keys[start: start + count]
 
-    for lv in seeds.get('lever', []):
-        rows = fetch_lever(lv)
-        if rows: used.append({"type":"lever","key":lv,"count":len(rows)})
-        for r in rows:
-            key = r.get('jd_url') or r.get('id')
-            if key and key not in seen:
-                seen.add(key); all_rows.append(r)
+    existing = read_jobs_from_csv()
+    bykey = {(r.get('jd_url') or r.get('id')): r for r in existing}
 
+    used = []
+    for typ, key in part:
+        try:
+            rows = fetch_greenhouse(key) if typ == 'greenhouse' else fetch_lever(key)
+            if rows:
+                used.append({"type": typ, "key": key, "count": len(rows)})
+                for r in rows:
+                    k = r.get('jd_url') or r.get('id')
+                    if k: bykey[k] = r
+        except Exception as e:
+            logger.warning(f"refresh_chunk error {typ}:{key} -> {e}")
+
+    all_rows = list(bykey.values())
     random.shuffle(all_rows)
     save_jobs_to_csv(all_rows)
-    return {"count": len(all_rows), "sources": used}
+    return {
+        "ok": True,
+        "processed": len(part),
+        "start": start,
+        "count": count,
+        "total_keys": total_keys,
+        "sources": used,
+        "total_jobs": len(all_rows),
+        "done": (start + count) >= total_keys
+    }
 
 # ================== 解析 / 匹配 / 生成 ==================
 
@@ -301,6 +316,13 @@ def optimize_resume(profile: str, lang: str='zh') -> str:
     return ans or profile
 
 
+def generate_ats_resume(resume_profile: str, job_desc: str, lang: str='zh', template: str='1') -> str:
+    sys_p = "You produce an ATS-friendly resume tailored to the job, with quantifiable bullets, clean sections, and keywords matching the JD."
+    usr_p = (f"LANG={lang}. TEMPLATE={template}. Based on the candidate profile and the job description, write a tailored resume.\n\nPROFILE:\n{resume_profile[:6000]}\n\nJD:\n{job_desc[:6000]}\n\nReturn a complete resume in plain text sections: SUMMARY, SKILLS, EXPERIENCE, EDUCATION, PROJECTS (optional).")
+    ans = call_llm(sys_p, usr_p, temperature=0.35, max_tokens=1600)
+    return ans or (resume_profile[:1200] if resume_profile else '')
+
+
 def match_rule_overlap(a: str, b: str) -> int:
     def tok(t):
         t = (t or '').lower(); t = re.sub(r"[^a-z0-9\u4e00-\u9fff\s]+"," ",t)
@@ -332,7 +354,6 @@ def match_with_llm(profile: str, jd: str, title: str='') -> Dict[str, Any]:
 def topk_match(profile: str, jobs: List[Dict[str,Any]], k: int=8) -> List[Dict[str,Any]]:
     if not profile:
         return []
-    # 隐式粗筛（不展示）：按关键词重叠排序取前20，再调用 LLM 精排取前K
     jobs0 = sorted(jobs, key=lambda r: match_rule_overlap(profile, (r.get('title','')+' '+r.get('description',''))), reverse=True)[:20]
     scored = []
     for r in jobs0:
@@ -344,6 +365,28 @@ def topk_match(profile: str, jobs: List[Dict[str,Any]], k: int=8) -> List[Dict[s
         item = r.copy(); item['match'] = res; out.append(item)
     return out
 
+# =============== 候选人池（企业端 Demo） ==================
+
+def _ensure_candidates_header():
+    if not os.path.exists(CANDIDATES_CSV):
+        with open(CANDIDATES_CSV, 'w', newline='', encoding='utf-8') as f:
+            w = csv.DictWriter(f, fieldnames=['id','name','email','tags','profile','ts'])
+            w.writeheader()
+
+
+def read_candidates() -> List[Dict[str,Any]]:
+    if not os.path.exists(CANDIDATES_CSV):
+        return []
+    out = []
+    with open(CANDIDATES_CSV, 'r', newline='', encoding='utf-8') as f:
+        for r in csv.DictReader(f):
+            try:
+                r['tags'] = json.loads(r.get('tags') or '[]')
+            except Exception:
+                r['tags'] = []
+            out.append(r)
+    return out
+
 # ================== 路由 ==================
 @app.route('/')
 def root_index():
@@ -353,12 +396,7 @@ def root_index():
 def serve_public(p):
     return send_from_directory(PUBLIC_DIR, p)
 
-# Jobs
-@app.route('/api/jobs/refresh', methods=['POST'])
-def api_jobs_refresh():
-    info = refresh_jobs_from_seed()
-    return jsonify({"ok": True, **info})
-
+# Jobs 列表
 @app.route('/api/jobs/list')
 def api_jobs_list():
     rows = read_jobs_from_csv()
@@ -383,7 +421,42 @@ def api_jobs_list():
     rows = [r for r in rows if hit(r)]
     return jsonify({"ok": True, "count": len(rows), "items": rows[:limit]})
 
-# Resume parse & optimize
+# Jobs 刷新（一次性，可能超时）
+@app.route('/api/jobs/refresh', methods=['POST'])
+def api_jobs_refresh():
+    # 兼容老接口，内部走分片直到完成，但每片很小，尽量避免超时
+    start = 0
+    total = 0
+    used_all = []
+    while True:
+        info = refresh_chunk('both', start=start, count=15)
+        total = info.get('total_jobs', total)
+        used_all += info.get('sources', [])
+        if info.get('done'): break
+        start += 15
+        # 防止单请求过长
+        if start >= 120: break
+    return jsonify({"ok": True, "count": total, "sources": used_all})
+
+# Jobs 分片刷新（推荐前端循环调用）
+@app.route('/api/jobs/refresh_chunk', methods=['POST'])
+def api_jobs_refresh_chunk():
+    source = request.args.get('source','both')
+    start = int(request.args.get('start') or 0)
+    count = max(1, min(int(request.args.get('count') or 20), 50))
+    info = refresh_chunk(source, start, count)
+    return jsonify(info)
+
+# Jobs 导入离线种子（jobs_seed.csv -> jobs.csv）
+@app.route('/api/jobs/import_static', methods=['POST'])
+def api_jobs_import_static():
+    if not os.path.exists(JOBS_SEED_CSV):
+        return jsonify({"ok": False, "error": "data/jobs_seed.csv 不存在"}), 400
+    shutil.copyfile(JOBS_SEED_CSV, JOBS_CSV)
+    rows = read_jobs_from_csv()
+    return jsonify({"ok": True, "count": len(rows)})
+
+# Resume parse & optimize & generate
 @app.route('/api/resume/parse', methods=['POST'])
 def api_resume_parse():
     lang = (request.form.get('lang') or 'zh').lower()
@@ -400,7 +473,17 @@ def api_resume_optimize():
     out = optimize_resume(text, lang=lang)
     return jsonify({"ok": True, "text": out})
 
-# JD parse & generate (B-side)
+@app.route('/api/resume/generate', methods=['POST'])
+def api_resume_generate():
+    data = request.get_json(force=True)
+    resume_profile = data.get('resume_profile') or ''
+    job_desc = data.get('job_desc') or ''
+    lang = (data.get('lang') or 'zh').lower()
+    tpl = str(data.get('template') or '1')
+    out = generate_ats_resume(resume_profile, job_desc, lang=lang, template=tpl)
+    return jsonify({"ok": True, "text": out})
+
+# JD parse & generate（B 端）
 @app.route('/api/jd/parse', methods=['POST'])
 def api_jd_parse():
     lang = (request.form.get('lang') or 'zh').lower()
@@ -421,7 +504,7 @@ def api_jd_generate():
     out = call_llm(sys_p, usr_p, temperature=0.35, max_tokens=1400)
     return jsonify({"ok": True, "jd": out or need})
 
-# Match TopK
+# TopK 匹配
 @app.route('/api/match/topk', methods=['POST'])
 def api_match_topk():
     data = request.get_json(force=True)
@@ -430,6 +513,51 @@ def api_match_topk():
     jobs = read_jobs_from_csv()
     out = topk_match(profile, jobs, k=k)
     return jsonify({"ok": True, "items": out, "k": k})
+
+# 候选人：上传 & 列表 & 匹配 JD
+@app.route('/api/candidates/upload', methods=['POST'])
+def api_candidates_upload():
+    _ensure_candidates_header()
+    name = request.form.get('name') or ''
+    email = request.form.get('email') or ''
+    tags = request.form.get('tags') or ''
+    file = request.files.get('file')
+    raw = extract_text_from_file(file) if file else (request.form.get('text') or '')
+    prof = summarize_resume(raw, lang=(request.form.get('lang') or 'zh'))
+    row = {
+        'id': str(uuid.uuid4()),
+        'name': name,
+        'email': email,
+        'tags': json.dumps([t.strip() for t in tags.split(',') if t.strip()], ensure_ascii=False),
+        'profile': prof,
+        'ts': datetime.utcnow().isoformat()+ 'Z'
+    }
+    need_header = not os.path.exists(CANDIDATES_CSV) or os.path.getsize(CANDIDATES_CSV) == 0
+    with open(CANDIDATES_CSV, 'a', newline='', encoding='utf-8') as f:
+        w = csv.DictWriter(f, fieldnames=['id','name','email','tags','profile','ts'])
+        if need_header: w.writeheader()
+        w.writerow(row)
+    return jsonify({"ok": True, "item": row})
+
+@app.route('/api/candidates/list')
+def api_candidates_list():
+    return jsonify({"ok": True, "items": read_candidates()})
+
+@app.route('/api/candidates/match', methods=['POST'])
+def api_candidates_match():
+    data = request.get_json(force=True)
+    jd_text = data.get('jd_text') or ''
+    k = int(data.get('k') or 8)
+    cands = read_candidates()
+    scored = []
+    for c in cands:
+        res = match_with_llm(c.get('profile',''), jd_text, '')
+        scored.append((res['score'], c, res))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    items = []
+    for s, c, res in scored[:k]:
+        it = c.copy(); it['match'] = res; items.append(it)
+    return jsonify({"ok": True, "items": items})
 
 # 手动投递记录
 @app.route('/api/apply/log', methods=['POST'])
