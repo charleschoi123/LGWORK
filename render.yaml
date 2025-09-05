@@ -1,17 +1,16 @@
 services:
   - type: web
-    name: lgwork-api
+    name: lgwork
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app -b 0.0.0.0:$PORT
-    autoDeploy: true
+    startCommand: gunicorn app:app --workers=2 --threads=4 --timeout=120
     envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.8
       - key: DEEPSEEK_API_KEY
-        sync: false        # 私密变量（你已在控制台填了也可以保留这行）
+        sync: false
+      - key: DEEPSEEK_API_BASE
+        sync: false
       - key: DEEPSEEK_MODEL
         value: deepseek-chat
-      - key: JOBS_CSV_PATH
-        value: data/jobs.csv
-      - key: TRACKER_JSON_PATH
-        value: data/tracker.json
