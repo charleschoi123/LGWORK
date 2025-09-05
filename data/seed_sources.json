@@ -1,0 +1,18 @@
+说明：这些公司大多使用 Greenhouse/Lever，通常能拉回较多岗位。可随时增删。
+{
+  "greenhouse": [
+    "openai", "stripe", "databricks", "asana", "affirm", "notion", "discord", "doordash", "coinbase", "pinterest",
+    "dropbox", "cloudflare", "lyft", "instacart", "reddit", "brex", "figma", "airbnb", "twilio", "robinhood",
+    "10xgenomics", "ginkgobioworks", "insitro", "recursion", "denalitherapeutics", "beamtx", "relaytx",
+    "generatebiomedicines", "vercel", "samsara", "datadog", "okta", "rubrik", "box", "squarespace",
+    "affirm", "etsy", "nianticlabs", "roku", "hubspot", "mongodb", "netlify", "klarna", "asana", "snowflake",
+    "octa", "benchling", "zipline", "scaleai", "anduril", "snyk", "grafana", "hashicorp", "atlassian",
+    "aurora", "waymo", "ziprecruiter", "zendesk", "square", "unity", "robinhood", "coupang",
+    "confluent", "databricks", "sentinelone", "palantir", "skydio", "cloudflare"
+  ],
+  "lever": [
+    "scaleai", "reddit", "turo", "postman", "benchling", "sofi", "niantic", "loom", "roamresearch", "lever",
+    "planet", "opentable", "remitly", "affirm", "bigcommerce", "triplebyte", "hopper", "oneplus", "xero",
+    "grab", "quora", "gusto", "gyroscope", "doordash"
+  ]
+}
