@@ -1,0 +1,3 @@
+id,source,company,title,location,remote,level,salary,jd_url,description,tags,posted_at
+lv-abc123,lever,ExampleCo,Data Analyst,Remote,true,Full-time,,https://jobs.example.com/abc123,"You will build dashboards and run SQL for business insights.","[""remote"", ""sql""]",2024-11-02
+gh-987654,greenhouse,SampleCorp,ML Engineer,San Francisco,false,Full-time,180k-220k,https://boards.greenhouse.io/samplecorp/jobs/987654,"Design and deploy ML models; Python, TensorFlow, AWS.","[""ml"", ""python"", ""aws""]",2025-01-15
