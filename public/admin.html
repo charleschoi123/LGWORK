@@ -1,103 +1,300 @@
 <!doctype html>
 <html lang="zh-CN">
 <head>
-<meta charset="utf-8" />
-<title>LGWORK · 公开职位采集</title>
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<style>
-  body{font-family:ui-sans-serif,-apple-system,Segoe UI,Roboto,Helvetica,Arial,"Microsoft YaHei";background:#0b0f14;color:#e5e7eb;margin:0}
-  .wrap{max-width:900px;margin:24px auto;padding:0 16px}
-  .card{background:#0f172a;border:1px solid #1f2937;border-radius:16px;padding:16px}
-  textarea,input,button{width:100%;box-sizing:border-box;margin:8px 0;padding:10px;border-radius:10px;border:1px solid #29303a;background:#111827;color:#e5e7eb}
-  button{cursor:pointer;background:#0369a1;border-color:#0369a1}
-  small{color:#94a3b8}
-  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-  .row3{display:grid;grid-template-columns:1fr;gap:10px}
-  @media(min-width:860px){.row3{grid-template-columns:1fr 1fr}}
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LGWORK · 公开职位采集</title>
+  <style>
+    :root{
+      --bg:#0b1220; --panel:#0f172a; --muted:#94a3b8; --text:#e2e8f0; --accent:#0ea5e9; --ok:#16a34a; --err:#ef4444;
+      --border:#1f2a44;
+    }
+    *{box-sizing:border-box}
+    body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    .wrap{max-width:1180px;margin:32px auto;padding:0 16px}
+    h1{font-size:22px;margin:0 0 6px;display:flex;gap:12px;align-items:center}
+    h1 .dot{width:10px;height:10px;border-radius:50%;background:var(--accent)}
+    .sub{color:var(--muted);margin-bottom:18px}
+    .card{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:18px;margin:18px 0}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px}
+    label{display:block;margin:10px 0 6px;color:#cbd5e1}
+    textarea, input[type="text"], input[type="number"]{
+      width:100%;background:#0b1020;color:var(--text);border:1px solid var(--border);
+      padding:12px;border-radius:10px;outline:none;resize:vertical;min-height:84px
+    }
+    input[type="text"], input[type="number"]{min-height:auto}
+    .hint{color:var(--muted);font-size:12px}
+    .btns{display:flex;gap:12px;flex-wrap:wrap;margin-top:12px}
+    button{
+      background:#0b1020;border:1px solid var(--border);color:var(--text);padding:10px 14px;border-radius:10px;
+      cursor:pointer
+    }
+    button.primary{background:var(--accent);border-color:transparent;color:#00121a;font-weight:600}
+    button.ok{background:var(--ok);border-color:transparent}
+    button.ghost{background:#0b1020;border-color:#233055}
+    .out{white-space:pre-wrap;background:#090f1a;border:1px dashed #253055;border-radius:12px;padding:14px;margin-top:14px;color:#cbd5e1;max-height:420px;overflow:auto}
+    .kpi{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px}
+    .chip{background:#0b1020;border:1px solid var(--border);padding:6px 10px;border-radius:999px;color:#cbd5e1}
+    .chip b{color:#e2e8f0}
+    .hr{height:1px;background:var(--border);margin:16px 0}
+    .topbar{display:flex;justify-content:space-between;align-items:center}
+    a.link{color:#93c5fd;text-decoration:none}
+    .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+    .foot{color:#64748b;font-size:12px;margin-top:10px}
+    .warn{color:#f59e0b}
+    .oktxt{color:#22c55e}
+    .errtxt{color:#f87171}
+  </style>
 </head>
 <body>
-<div class="wrap">
-  <h2>LGWORK · 公开职位采集</h2>
-  <div class="card">
-    <p><b>说明：</b>支持采集 <b>Greenhouse</b>、<b>Lever</b>、<b>Workday</b> 的公开职位；<b>MokaHR</b> 为实验性尝试。<br/>
-    <small>Greenhouse/Lever 需填写 <i>slug</i>（招聘页路径名），Workday/MokaHR 直接粘贴公司招聘页 URL。</small></p>
-
-    <div class="row">
+  <div class="wrap">
+    <div class="topbar">
+      <h1><span class="dot"></span>LGWORK · 公开职位采集</h1>
       <div>
-        <label>Greenhouse slugs（逗号分隔）</label>
-        <textarea id="gh" rows="5" placeholder="如：airbnb, stripe, figma, notion"></textarea>
-      </div>
-      <div>
-        <label>Lever slugs（逗号分隔）</label>
-        <textarea id="lv" rows="5" placeholder="如：scaleai"></textarea>
+        <a class="link" href="/">回到 · AI 求职副驾</a>
       </div>
     </div>
+    <div class="sub">支持采集 <b>Greenhouse</b>、<b>Lever</b>、<b>Workday</b> 的公开职位；<b>MokaHR</b> 为实验性尝试；可选接入 <b>Bright Data</b> 填充更多职位。</div>
 
-    <div class="row3">
-      <div>
-        <label>Workday 招聘页 URL（每行一个）</label>
-        <textarea id="wd" rows="5" placeholder="如：https://beigene.wd5.myworkdayjobs.com/en-US/BeiGene"></textarea>
+    <!-- ATS 区块 -->
+    <div class="card">
+      <h2 style="margin:0 0 6px">一、ATS 采集（Greenhouse / Lever / Workday）</h2>
+      <div class="hint">
+        <div>• Greenhouse 的 <i>slug</i>：公司招聘页链接里的那段，例如 <code>https://boards.greenhouse.io/<b>company_slug</b></code> → 填 <b>company_slug</b></div>
+        <div>• Lever 的 <i>slug</i>：<code>https://jobs.lever.co/<b>company_slug</b></code> → 填 <b>company_slug</b></div>
+        <div>• Workday：可直接贴 <b>完整招聘页 URL（每行一个）</b>，或简写 <code>tenant/site</code>，或 <code>tenant/site@wd5</code>；系统会自动尝试常用集群（wd5、wd3 等）。</div>
       </div>
-      <div>
-        <label>MokaHR 招聘页 URL（每行一个，实验性）</label>
-        <textarea id="mk" rows="5" placeholder="如：https://app.mokahr.com/social-recruitment/hengrui/145996#/"></textarea>
+
+      <div class="row">
+        <div>
+          <label>Greenhouse slugs（逗号分隔）</label>
+          <textarea id="ghSlugs" placeholder="如：airbnb, stripe, figma"></textarea>
+        </div>
+        <div>
+          <label>Lever slugs（逗号分隔）</label>
+          <textarea id="lvSlugs" placeholder="如：scaleai, databricks"></textarea>
+        </div>
       </div>
+
+      <div class="row">
+        <div>
+          <label>Workday 招聘页 URL / 简写（每行一个）</label>
+          <textarea id="wdLines" placeholder="可直接贴完整 URL（每行一个），或 tenant/site，或 tenant/site@wd5"></textarea>
+        </div>
+        <div>
+          <label>Admin Token（若未在服务端设置可留空）</label>
+          <input id="adminToken" type="text" placeholder="与服务端 ADMIN_TOKEN 相同（留空也可尝试）"/>
+          <div class="btns">
+            <button class="ghost" onclick="fillSamples()">填入示例（可修改后再导入）</button>
+            <button class="primary" onclick="importATS()">导入职位</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="kpi">
+        <div class="chip">海外源导入：<b id="kOversea">0</b> 条</div>
+        <div class="chip">国内源导入：<b id="kCN">0</b> 条</div>
+        <div class="chip">Bright Data：<b id="kBD">0</b> 条</div>
+      </div>
+      <div id="atsOut" class="out">尚无输出</div>
     </div>
 
-    <label>Admin Token（若未在服务端设置可留空）</label>
-    <input id="tk" placeholder="与服务端 ADMIN_TOKEN 相同" />
-
-    <div class="row">
-      <button id="fill">填入示例（可修改后再导入）</button>
-      <button id="go">导入职位</button>
+    <!-- 国内（MokaHR） -->
+    <div class="card">
+      <h2 style="margin:0 0 6px">二、国内职位（MokaHR · 实验）</h2>
+      <div class="hint">将公司招募页 URL 逐行粘贴（前端渲染较多，能抓多少看具体站点结构，仅作补充）。例如：<code>https://app.mokahr.com/social-recruitment/hengrui/145996#/</code></div>
+      <div class="row">
+        <div>
+          <label>MokaHR 招聘页 URL（每行一个）</label>
+          <textarea id="mkUrls" placeholder="https://app.mokahr.com/social-recruitment/hengrui/145996#/"></textarea>
+        </div>
+        <div>
+          <label>&nbsp;</label>
+          <div class="btns">
+            <button class="primary" onclick="importCN()">导入职位</button>
+          </div>
+        </div>
+      </div>
+      <div id="cnOut" class="out">尚无输出</div>
     </div>
-    <pre id="out" style="white-space:pre-wrap;background:#0b1220;border-radius:10px;padding:10px;min-height:70px"></pre>
-    <small>导入的数据会追加到 <code>data/jobs.csv</code>。免费实例重部署会清空该文件，路演前再导入一次即可。</small>
+
+    <!-- Bright Data -->
+    <div class="card">
+      <h2 style="margin:0 0 6px">三、Bright Data 导入（可选）</h2>
+      <div class="hint">两种方式任选其一：① 直接读取 Dataset；② 触发 Collector 抓取（需要在服务端配置 API Token）。</div>
+      <div class="row">
+        <div>
+          <label>Dataset ID（直读）</label>
+          <input id="bdDataset" type="text" placeholder="有 Dataset ID 时填此项，优先使用" />
+        </div>
+        <div></div>
+      </div>
+      <div class="row3">
+        <div>
+          <label>Collector ID</label>
+          <input id="bdCollector" type="text" placeholder="可留空使用服务端默认 BRIGHTDATA_COLLECTOR_ID" />
+        </div>
+        <div>
+          <label>关键词 Query</label>
+          <input id="bdQuery" type="text" placeholder="如：biotech jobs" />
+        </div>
+        <div>
+          <label>国家/区域</label>
+          <input id="bdCountry" type="text" value="US" />
+        </div>
+      </div>
+      <div class="row" style="align-items:end">
+        <div>
+          <label>Limit</label>
+          <input id="bdLimit" type="number" value="500" min="1" max="2000" />
+        </div>
+        <div class="btns">
+          <button class="primary" onclick="importBD()">导入 Bright Data</button>
+        </div>
+      </div>
+      <div id="bdOut" class="out">尚无输出</div>
+      <div class="foot">提示：若未在服务端配置 BRIGHTDATA_API_TOKEN，会直接提示缺少配置（不影响其它来源）。</div>
+    </div>
+
+    <div class="foot">导入的数据会追加到 <code>data/jobs.csv</code>；免费实例重部署会清空该文件，路演前导入一次即可。</div>
   </div>
-</div>
-<script>
-const out = document.getElementById('out');
-document.getElementById('fill').onclick = ()=>{
-  document.getElementById('gh').value = 'airbnb, stripe, figma, notion';
-  document.getElementById('lv').value = 'scaleai';
-  document.getElementById('wd').value = 'https://beigene.wd5.myworkdayjobs.com/en-US/BeiGene';
-  document.getElementById('mk').value = 'https://app.mokahr.com/social-recruitment/hengrui/145996#/';
-};
-document.getElementById('go').onclick = async ()=>{
-  const gh = document.getElementById('gh').value.split(/[,，\s]+/).filter(Boolean);
-  const lv = document.getElementById('lv').value.split(/[,，\s]+/).filter(Boolean);
-  const wd = document.getElementById('wd').value.split(/\n+/).map(s=>s.trim()).filter(Boolean);
-  const mk = document.getElementById('mk').value.split(/\n+/).map(s=>s.trim()).filter(Boolean);
-  const tk = document.getElementById('tk').value.trim();
-  out.textContent = '采集中…';
-  try{
-    // 先导入海外源（Greenhouse/Lever）
-    if(gh.length || lv.length){
-      const r1 = await fetch('/api/ingest_ats', {
-        method:'POST',
-        headers:Object.assign({'Content-Type':'application/json'}, tk?{'X-Admin-Token':tk}:{}),
-        body: JSON.stringify({ greenhouse: gh, lever: lv })
-      });
-      const d1 = await r1.json();
-      out.textContent = (r1.ok? `海外源导入：${d1.ingested||0} 条\n` : `海外源失败：${d1.error||'未知错误'}\n`);
+
+  <script>
+    const qs = sel => document.querySelector(sel);
+    const byId = id => document.getElementById(id);
+
+    const state = { oversea:0, cn:0, bd:0 };
+
+    function bumpKpi(){
+      byId('kOversea').textContent = state.oversea;
+      byId('kCN').textContent = state.cn;
+      byId('kBD').textContent = state.bd;
     }
-    // 再导入国内源（Workday/MokaHR）
-    if(wd.length || mk.length){
-      const r2 = await fetch('/api/ingest_cn_jobs', {
-        method:'POST',
-        headers:Object.assign({'Content-Type':'application/json'}, tk?{'X-Admin-Token':tk}:{}),
-        body: JSON.stringify({ workday: wd, mokahr: mk })
-      });
-      const d2 = await r2.json();
-      out.textContent += (r2.ok? `国内源导入：${d2.ingested||0} 条\n` : `国内源失败：${d2.error||'未知错误'}\n`);
-      if (d2.detail) out.textContent += JSON.stringify(d2.detail, null, 2);
+
+    function fillSamples(){
+      // Greenhouse / Lever 示例（仅验证通路用）
+      byId('ghSlugs').value = "airbnb, stripe, figma";
+      byId('lvSlugs').value = "scaleai";
+
+      // Workday 示例：医药为主（可自行删改）
+      byId('wdLines').value =
+`https://beigene.wd5.myworkdayjobs.com/en-US/BeiGene
+https://pfizer.wd1.myworkdayjobs.com/PfizerCareers
+https://roche.wd3.myworkdayjobs.com/roche
+https://novartis.wd3.myworkdayjobs.com/novartis
+https://astrazeneca.wd3.myworkdayjobs.com/Careers
+https://gsk.wd5.myworkdayjobs.com/GSKCareers
+https://sanofi.wd3.myworkdayjobs.com/SanofiCareers
+https://msd.wd5.myworkdayjobs.com/External
+https://bms.wd5.myworkdayjobs.com/BMS
+https://jnj.wd5.myworkdayjobs.com/JohnsonAndJohnson`;
     }
-    if(!gh.length && !lv.length && !wd.length && !mk.length){
-      out.textContent = '请先填写任意一种来源的数据再导入。';
+
+    // ---------------- ATS 导入 ----------------
+    async function importATS(){
+      const gh = byId('ghSlugs').value.trim();
+      const lv = byId('lvSlugs').value.trim();
+      const wd = byId('wdLines').value.trim();
+      const token = byId('adminToken').value.trim();
+
+      const body = {
+        greenhouse_slugs: gh,
+        lever_slugs: lv,
+        workday_lines: wd
+      };
+
+      let resTxt = '';
+      try{
+        const r = await fetch('/api/ingest_ats', {
+          method:'POST',
+          headers: {
+            'Content-Type':'application/json',
+            ...(token ? {'X-Admin-Token': token} : {})
+          },
+          body: JSON.stringify(body)
+        });
+        const data = await r.json();
+        resTxt = JSON.stringify(data, null, 2);
+        if (data.ok){
+          const added = data.ingested || 0;
+          state.oversea += added;
+          bumpKpi();
+        }
+      }catch(e){
+        resTxt = '请求失败：' + e.message;
+      }
+      byId('atsOut').textContent = resTxt;
     }
-  }catch(e){ out.textContent = '请求失败，请重试'; }
-};
-</script>
+
+    // ---------------- 国内（MokaHR） ----------------
+    async function importCN(){
+      const lines = byId('mkUrls').value.trim().split(/\n+/).map(x=>x.trim()).filter(Boolean);
+      const token = byId('adminToken').value.trim();
+
+      if (!lines.length){
+        byId('cnOut').textContent = '请至少粘贴 1 条 MokaHR 招聘页 URL';
+        return;
+      }
+
+      let resTxt = '';
+      try{
+        const r = await fetch('/api/ingest_cn_jobs', {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json',
+            ...(token ? {'X-Admin-Token': token} : {})
+          },
+          body: JSON.stringify({ mokahr_urls: lines })
+        });
+        const data = await r.json();
+        resTxt = JSON.stringify(data, null, 2);
+        if (data.ok){
+          const added = data.ingested || 0;
+          state.cn += added;
+          bumpKpi();
+        }
+      }catch(e){
+        resTxt = '请求失败：' + e.message;
+      }
+      byId('cnOut').textContent = resTxt;
+    }
+
+    // ---------------- Bright Data ----------------
+    async function importBD(){
+      const dataset = byId('bdDataset').value.trim();
+      const collector = byId('bdCollector').value.trim();
+      const query = byId('bdQuery').value.trim();
+      const country = byId('bdCountry').value.trim() || 'US';
+      const limit = Number(byId('bdLimit').value) || 500;
+      const token = byId('adminToken').value.trim();
+
+      const payload = dataset
+        ? { dataset_id: dataset }
+        : { collector_id: collector, query, country, limit };
+
+      let resTxt = '';
+      try{
+        const r = await fetch('/api/ingest_brightdata', {
+          method:'POST',
+          headers:{
+            'Content-Type':'application/json',
+            ...(token ? {'X-Admin-Token': token} : {})
+          },
+          body: JSON.stringify(payload)
+        });
+        const data = await r.json();
+        resTxt = JSON.stringify(data, null, 2);
+        if (data.ok){
+          const added = data.ingested || 0;
+          state.bd += added;
+          bumpKpi();
+        }
+      }catch(e){
+        resTxt = '请求失败：' + e.message;
+      }
+      byId('bdOut').textContent = resTxt;
+    }
+  </script>
 </body>
 </html>
