@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LGWORK • 求职入口（Patch B’）</title>
+<title>LGWORK • 求职入口（解析→优化→TopK）</title>
 <style>
   :root{--pri:#0a66c2;--bg:#f3f2ef;--fg:#091e42;--muted:#5e6c84;--card:#fff;--border:#e0e0e0;--good:#17a34a;--warn:#b45309}
   body{font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0}
@@ -44,7 +44,7 @@
       <div class="row">
         <input type="file" id="file" accept=".pdf,.doc,.docx,.txt" style="max-width:360px"/>
         <select id="lang" style="max-width:160px"><option value="zh">中文</option><option value="en">English</option></select>
-        <button class="btn" id="btnRun">一键匹配 </button>
+        <button class="btn" id="btnRun">一键匹配（解析→优化→TopK）</button>
       </div>
       <div style="margin:8px 0">或在下方粘贴简历原文：</div>
       <textarea id="resumetext" rows="8" placeholder="在此粘贴简历…"></textarea>
@@ -128,6 +128,14 @@ async function runPipeline(){
     PROFILE_OPT = d2.text || PROFILE
     tw($('#profile'), PROFILE_OPT)
 
+    // Step 2.5: 静默入库画像，供企业侧匹配使用
+    try{
+      await fetch('/api/candidates/ingest', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ profile: PROFILE_OPT || PROFILE })
+      })
+    }catch(e){}
+
     // Step 3: TopK 匹配
     $('#status').textContent = '正在匹配职位（TopK）…'
     skeletonJobs(6); pulse($('#prog2'), true); setProg($('#prog2'), 30)
@@ -148,7 +156,6 @@ async function runPipeline(){
           ${(x.tags||[]).slice(0,3).map(t=>`<span class='pill'>${esc(t)}</span>`).join('')}
         </div>
       </div>`).join('')
-      // 默认选中第一条
       SELECTED_JOB = arr[0]
       ;[...document.querySelectorAll('.job')].forEach((el,idx)=>{
         if(idx===0) el.classList.add('selected')
