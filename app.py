@@ -9,7 +9,7 @@ APP_ROOT = os.path.dirname(os.path.abspath(__file__))
 PUBLIC_DIR = os.path.join(APP_ROOT, 'public')
 DATA_DIR = os.path.join(APP_ROOT, 'data')
 JOBS_CSV = os.path.join(DATA_DIR, 'jobs.csv')
-JOBS_SEED_CSV = os.path.join(DATA_DIR, 'jobs_seed.csv')  # 可放入你离线导出的4K职位
+JOBS_SEED_CSV = os.path.join(DATA_DIR, 'jobs_seed.csv')  # 离线导入
 SEED_JSON = os.path.join(DATA_DIR, 'seed_sources.json')
 APPLICATIONS_CSV = os.path.join(DATA_DIR, 'applications.csv')
 CANDIDATES_CSV = os.path.join(DATA_DIR, 'candidates.csv')
@@ -26,15 +26,15 @@ DEEPSEEK_API_KEY = os.getenv('DEEPSEEK_API_KEY') or os.getenv('LLM_API_KEY')
 DEEPSEEK_API_BASE = os.getenv('DEEPSEEK_API_BASE', 'https://api.deepseek.com')
 DEEPSEEK_MODEL = os.getenv('DEEPSEEK_MODEL', 'deepseek-chat')
 
-# 更像真实浏览器，且缩短超时，避免 Render 上 gunicorn 超时
+# 更像真实浏览器，缩短外站请求超时，避免卡死
 UA = {
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
     'Accept': 'text/html,application/json;q=0.9,*/*;q=0.8',
     'Accept-Language': 'en-US,en;q=0.8,zh;q=0.7'
 }
-REQ_TIMEOUT = 6  # 秒
+REQ_TIMEOUT = 4  # 秒（外站抓取）
 
-# ---- 内置默认 seeds（seed_sources.json 缺失/为空时使用） ----
+# ---- 内置 seeds（seed_sources.json 缺失/为空时使用） ----
 DEFAULT_SEEDS = {
     "greenhouse": [
         "stripe","databricks","asana","affirm","discord","coinbase","pinterest","dropbox","cloudflare",
@@ -50,13 +50,11 @@ DEFAULT_SEEDS = {
 }
 
 # ================== 工具函数 ==================
-
 def strip_html(raw_html: str) -> str:
     try:
         return re.sub('<[^<]+?>', '', raw_html or '').replace('\xa0', ' ').strip()
     except Exception:
         return raw_html or ''
-
 
 def save_jobs_to_csv(rows: List[Dict[str, Any]]):
     fieldnames = ['id','source','company','title','location','remote','level','salary','jd_url','description','tags','posted_at']
@@ -68,7 +66,6 @@ def save_jobs_to_csv(rows: List[Dict[str, Any]]):
             if isinstance(row.get('tags'), (list, dict)):
                 row['tags'] = json.dumps(row['tags'], ensure_ascii=False)
             w.writerow({k: row.get(k, '') for k in fieldnames})
-
 
 def read_jobs_from_csv() -> List[Dict[str, Any]]:
     path = JOBS_CSV if os.path.exists(JOBS_CSV) else (JOBS_SEED_CSV if os.path.exists(JOBS_SEED_CSV) else None)
@@ -84,17 +81,14 @@ def read_jobs_from_csv() -> List[Dict[str, Any]]:
             out.append(r)
     return out
 
-
 def zero_exp_friendly(text: str) -> bool:
     t = (text or '').lower()
     pats = ['no prior experience','no experience required','career switch','recent graduates','fresh graduates','training provided','willingness to learn','entry level','junior role','欢迎转行','应届','可培养']
     return any(p in t for p in pats)
 
-
 def detect_remote(text: str) -> bool:
     t = (text or '').lower()
     return any(p in t for p in ['remote','hybrid','在家办公','远程'])
-
 
 def http_get(url: str, expect_json: bool = False):
     try:
@@ -106,22 +100,17 @@ def http_get(url: str, expect_json: bool = False):
         logger.warning(f"GET {url} failed: {e}")
     return None
 
-# ================== Greenhouse 抓取（带 EU 站 + token 自动发现） ==================
-
+# ================== Greenhouse 抓取（含 EU 站点 + token 自动发现） ==================
 def gh_discover_token(slug: str) -> Optional[str]:
-    """依次尝试 US/EU 站点，解析嵌入的 job_board?for=<token> 或 data 属性中的 apiToken。"""
     for host in ("boards.greenhouse.io", "boards.eu.greenhouse.io"):
         html = http_get(f"https://{host}/{slug}", expect_json=False)
         if not html:
             continue
         m = re.search(r'job_board\?for=([a-z0-9\-]+)', html, flags=re.I)
-        if m:
-            return m.group(1).lower()
+        if m: return m.group(1).lower()
         m2 = re.search(r'\"apiToken\"\s*:\s*\"([a-z0-9\-]+)\"', html, flags=re.I)
-        if m2:
-            return m2.group(1).lower()
+        if m2: return m2.group(1).lower()
     return None
-
 
 def fetch_greenhouse(board: str) -> List[Dict[str, Any]]:
     def _fetch(token: str) -> List[Dict[str, Any]]:
@@ -139,9 +128,18 @@ def fetch_greenhouse(board: str) -> List[Dict[str, Any]]:
                 if zero_exp_friendly(desc): tags.append('zero_exp_friendly')
                 if detect_remote(desc) or 'remote' in (location or '').lower(): tags.append('remote')
                 res.append({
-                    'id': f"gh-{j.get('id')}", 'source':'greenhouse', 'company': token, 'title': title,
-                    'location': location, 'remote': 'remote' in tags, 'level':'', 'salary':'', 'jd_url': jd_url,
-                    'description': desc[:5000], 'tags': tags, 'posted_at': j.get('updated_at') or j.get('created_at') or ''
+                    'id': f"gh-{j.get('id')}",
+                    'source':'greenhouse',
+                    'company': token,
+                    'title': title,
+                    'location': location,
+                    'remote': 'remote' in tags,
+                    'level':'',
+                    'salary':'',
+                    'jd_url': jd_url,
+                    'description': desc[:5000],
+                    'tags': tags,
+                    'posted_at': j.get('updated_at') or j.get('created_at') or ''
                 })
             except Exception:
                 continue
@@ -157,7 +155,6 @@ def fetch_greenhouse(board: str) -> List[Dict[str, Any]]:
     return []
 
 # ================== Lever 抓取 ==================
-
 def fetch_lever(company: str) -> List[Dict[str, Any]]:
     data = http_get(f"https://api.lever.co/v0/postings/{company}?mode=json", expect_json=True)
     res = []
@@ -177,17 +174,24 @@ def fetch_lever(company: str) -> List[Dict[str, Any]]:
             if zero_exp_friendly(desc): tags.append('zero_exp_friendly')
             if detect_remote(desc) or 'remote' in (location or '').lower(): tags.append('remote')
             res.append({
-                'id': f"lv-{j.get('id')}", 'source':'lever', 'company': company, 'title': title,
-                'location': location, 'remote': 'remote' in tags,
-                'level': (j.get('categories') or {}).get('commitment',''), 'salary':'', 'jd_url': jd_url,
-                'description': desc[:5000], 'tags': tags, 'posted_at': j.get('createdAt') or ''
+                'id': f"lv-{j.get('id')}",
+                'source':'lever',
+                'company': company,
+                'title': title,
+                'location': location,
+                'remote': 'remote' in tags,
+                'level': (j.get('categories') or {}).get('commitment',''),
+                'salary':'',
+                'jd_url': jd_url,
+                'description': desc[:5000],
+                'tags': tags,
+                'posted_at': j.get('createdAt') or ''
             })
         except Exception:
             continue
     return res
 
 # ================== 种子与刷新（分片） ==================
-
 def load_seeds() -> Dict[str, List[str]]:
     try:
         if os.path.exists(SEED_JSON):
@@ -201,7 +205,6 @@ def load_seeds() -> Dict[str, List[str]]:
     except Exception as e:
         logger.warning(f'read seeds error: {e}, use DEFAULT_SEEDS')
     return DEFAULT_SEEDS
-
 
 def refresh_chunk(source: str = 'both', start: int = 0, count: int = 20) -> Dict[str, Any]:
     seeds = load_seeds()
@@ -244,7 +247,6 @@ def refresh_chunk(source: str = 'both', start: int = 0, count: int = 20) -> Dict
     }
 
 # ================== 解析 / 匹配 / 生成 ==================
-
 def _try_imports():
     mods = {}
     try:
@@ -256,7 +258,6 @@ def _try_imports():
     return mods
 
 IMPORTS = _try_imports()
-
 
 def extract_text_from_file(fs) -> str:
     if not fs:
@@ -281,15 +282,19 @@ def extract_text_from_file(fs) -> str:
     except Exception:
         return ''
 
-
-def call_llm(system_prompt: str, user_prompt: str, temperature=0.2, max_tokens=1200) -> str:
+def call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.2, max_tokens: int = 700, timeout: int = 18) -> str:
     if not DEEPSEEK_API_KEY:
         return ''
     try:
         url = f"{DEEPSEEK_API_BASE.rstrip('/')}/v1/chat/completions"
-        payload = {"model": DEEPSEEK_MODEL, "messages": [{"role":"system","content":system_prompt},{"role":"user","content":user_prompt}], "temperature": temperature, "max_tokens": max_tokens}
+        payload = {
+            "model": DEEPSEEK_MODEL,
+            "messages": [{"role":"system","content":system_prompt},{"role":"user","content":user_prompt}],
+            "temperature": temperature,
+            "max_tokens": max_tokens
+        }
         headers = {"Authorization": f"Bearer {DEEPSEEK_API_KEY}", "Content-Type": "application/json"}
-        r = requests.post(url, headers=headers, json=payload, timeout=60)
+        r = requests.post(url, headers=headers, json=payload, timeout=timeout)
         if r.status_code == 200:
             j = r.json(); return (j.get('choices',[{}])[0].get('message',{}).get('content') or '').strip()
         logger.warning(f"LLM non-200: {r.status_code} {r.text[:180]}")
@@ -297,82 +302,91 @@ def call_llm(system_prompt: str, user_prompt: str, temperature=0.2, max_tokens=1
         logger.warning(f"LLM call failed: {e}")
     return ''
 
-
 def summarize_resume(raw: str, lang: str = 'zh') -> str:
     if not raw:
         return ''
     sys_p = "You analyze resumes and return a concise, ATS-friendly profile with bullet points."
     usr_p = (f"LANG={lang}. Extract: 1) Professional Summary (<=120 words). 2) Key Skills (<=15). 3) Experience Highlights (<=8). 4) Education.\n\nResume:\n{raw[:15000]}")
-    ans = call_llm(sys_p, usr_p)
+    ans = call_llm(sys_p, usr_p, timeout=18)
     return ans or raw[:600]
-
 
 def optimize_resume(profile: str, lang: str='zh') -> str:
     if not profile:
         return ''
     sys_p = "You are a resume coach. Improve wording, quantify results, add keywords for ATS, keep it concise and professional."
     usr_p = f"LANG={lang}. Improve the following resume content and return an optimized version.\n\n{profile[:8000]}"
-    ans = call_llm(sys_p, usr_p, temperature=0.3, max_tokens=1500)
+    ans = call_llm(sys_p, usr_p, temperature=0.3, max_tokens=1500, timeout=18)
     return ans or profile
-
 
 def generate_ats_resume(resume_profile: str, job_desc: str, lang: str='zh', template: str='1') -> str:
     sys_p = "You produce an ATS-friendly resume tailored to the job, with quantifiable bullets, clean sections, and keywords matching the JD."
     usr_p = (f"LANG={lang}. TEMPLATE={template}. Based on the candidate profile and the job description, write a tailored resume.\n\nPROFILE:\n{resume_profile[:6000]}\n\nJD:\n{job_desc[:6000]}\n\nReturn a complete resume in plain text sections: SUMMARY, SKILLS, EXPERIENCE, EDUCATION, PROJECTS (optional).")
-    ans = call_llm(sys_p, usr_p, temperature=0.35, max_tokens=1600)
+    ans = call_llm(sys_p, usr_p, temperature=0.35, max_tokens=1600, timeout=18)
     return ans or (resume_profile[:1200] if resume_profile else '')
 
-
-def match_rule_overlap(a: str, b: str) -> int:
-    def tok(t):
-        t = (t or '').lower(); t = re.sub(r"[^a-z0-9\u4e00-\u9fff\s]+"," ",t)
-        return set([w for w in t.split() if len(w)>2])
-    return len(tok(a) & tok(b))
-
+def _rule_score(profile: str, job: dict) -> int:
+    text = (job.get('title','') + ' ' + job.get('description','')).lower()
+    prof = (profile or '').lower()
+    keys = [
+        'python','sql','java','c++','ml','dl','nlp','cv','aws','gcp','azure',
+        'hadoop','spark','airflow','tableau','power bi','excel','ab test','etl',
+        'react','node','go','k8s','docker','biostat','clinical','gcp (good clinical practice)'
+    ]
+    base = 0
+    for k in keys:
+        if k in text and k in prof:
+            base += 6
+    if job.get('title','').lower() and any(w in prof for w in job.get('title','').lower().split()):
+        base += 8
+    return max(0, min(100, base))
 
 def match_with_llm(profile: str, jd: str, title: str='') -> Dict[str, Any]:
-    base = min(60, match_rule_overlap(profile, jd + ' ' + title))
-    sys_p = "You are a job-match evaluator. Score 0-100 with reasoning JSON."
-    usr_p = (f"Job Title: {title}\nJD:\n{jd[:6000]}\n\nCandidate Profile:\n{profile[:6000]}\n\nReturn JSON keys: score(0-100), top_matches(<=5), gaps(<=3), advice(<=3).")
-    llm = call_llm(sys_p, usr_p)
-    score2, analysis = 0, {}
-    if llm:
-        try:
-            import json as _json
-            m = re.search(r"\{[\s\S]*\}", llm)
-            if m:
-                analysis = _json.loads(m.group(0))
-                score2 = int(analysis.get('score', 0))
-            else:
-                analysis = {"advice":[llm[:400]]}
-        except Exception:
-            analysis = {"advice":[llm[:400]]}
-    final = int(0.6*base + 0.4*(score2 or base))
-    return {"score": max(1, min(100, final)), "rule_overlap": base, "analysis": analysis}
-
+    sys_p = ("你是招聘匹配助手。给出 0~100 的匹配分，并给出2~5条‘命中要点’与1~3条‘差距’。"
+             "输出 JSON：{score:int, analysis:{top_matches:[..], gaps:[..]}}")
+    usr_p = f"候选人画像：\n{profile}\n\n职位：{title}\nJD：\n{jd}\n\n请只输出 JSON。"
+    llm = call_llm(sys_p, usr_p, timeout=8)
+    try:
+        m = re.search(r"\{[\s\S]*\}\s*$", llm)
+        j = json.loads(m.group(0)) if m else {}
+    except Exception:
+        j = {}
+    if not isinstance(j, dict) or 'score' not in j:
+        j = {"score": 0, "analysis": {"top_matches": [], "gaps": []}}
+    j['score'] = int(max(0, min(100, j.get('score', 0))))
+    if 'analysis' not in j: j['analysis'] = {"top_matches": [], "gaps": []}
+    return j
 
 def topk_match(profile: str, jobs: List[Dict[str,Any]], k: int=8) -> List[Dict[str,Any]]:
     if not profile:
         return []
-    jobs0 = sorted(jobs, key=lambda r: match_rule_overlap(profile, (r.get('title','')+' '+r.get('description',''))), reverse=True)[:20]
-    scored = []
-    for r in jobs0:
+    # 1) 规则打分全部职位（极快）
+    pre = []
+    for r in jobs:
+        pre.append((_rule_score(profile, r), r))
+    pre.sort(key=lambda x: x[0], reverse=True)
+
+    # 2) 仅对前 M 个做 LLM 精排（时间可控）
+    M = min(len(pre), max(k*3, 12))
+    refined = []
+    for base, r in pre[:M]:
         res = match_with_llm(profile, r.get('description',''), r.get('title',''))
-        scored.append((res['score'], r, res))
-    scored.sort(key=lambda x: x[0], reverse=True)
-    out = []
-    for s, r, res in scored[:k]:
-        item = r.copy(); item['match'] = res; out.append(item)
-    return out
+        score = int(0.5*base + 0.5*res.get('score', 0))
+        refined.append({**r, "match": {"score": score, "analysis": res.get('analysis', {"top_matches": [], "gaps": []})}})
 
-# =============== 候选人池（企业端 Demo） ==================
+    # 3) 如不足 k 个，用纯规则分补齐
+    if len(refined) < k:
+        for base, r in pre[M:M+(k-len(refined))]:
+            refined.append({**r, "match": {"score": base, "analysis": {"top_matches": [], "gaps": []}}})
 
+    refined.sort(key=lambda x: x['match']['score'], reverse=True)
+    return refined[:k]
+
+# =============== 候选人池（仅用于静默入库 + 匹配） ==================
 def _ensure_candidates_header():
     if not os.path.exists(CANDIDATES_CSV):
         with open(CANDIDATES_CSV, 'w', newline='', encoding='utf-8') as f:
-            w = csv.DictWriter(f, fieldnames=['id','name','email','tags','profile','ts'])
+            w = csv.DictWriter(f, fieldnames=['name','email','tags','profile','ts'])
             w.writeheader()
-
 
 def read_candidates() -> List[Dict[str,Any]]:
     if not os.path.exists(CANDIDATES_CSV):
@@ -421,10 +435,9 @@ def api_jobs_list():
     rows = [r for r in rows if hit(r)]
     return jsonify({"ok": True, "count": len(rows), "items": rows[:limit]})
 
-# Jobs 刷新（一次性，可能超时）
+# Jobs 刷新（兼容老接口：内部用小分片循环）
 @app.route('/api/jobs/refresh', methods=['POST'])
 def api_jobs_refresh():
-    # 兼容老接口，内部走分片直到完成，但每片很小，尽量避免超时
     start = 0
     total = 0
     used_all = []
@@ -434,11 +447,10 @@ def api_jobs_refresh():
         used_all += info.get('sources', [])
         if info.get('done'): break
         start += 15
-        # 防止单请求过长
         if start >= 120: break
     return jsonify({"ok": True, "count": total, "sources": used_all})
 
-# Jobs 分片刷新（推荐前端循环调用）
+# Jobs 分片刷新（推荐）
 @app.route('/api/jobs/refresh_chunk', methods=['POST'])
 def api_jobs_refresh_chunk():
     source = request.args.get('source','both')
@@ -455,6 +467,15 @@ def api_jobs_import_static():
     shutil.copyfile(JOBS_SEED_CSV, JOBS_CSV)
     rows = read_jobs_from_csv()
     return jsonify({"ok": True, "count": len(rows)})
+
+# Jobs 数量速查
+@app.route('/api/jobs/count')
+def api_jobs_count():
+    if not os.path.exists(JOBS_CSV):
+        return jsonify({"count": 0})
+    with open(JOBS_CSV, 'r', encoding='utf-8') as f:
+        n = sum(1 for _ in csv.reader(f)) - 1
+    return jsonify({"count": max(0, n)})
 
 # Resume parse & optimize & generate
 @app.route('/api/resume/parse', methods=['POST'])
@@ -491,7 +512,7 @@ def api_jd_parse():
     raw = extract_text_from_file(file) if file else (request.form.get('text') or '')
     sys_p = "You are a JD analyst. Extract role, responsibilities, must-have, nice-to-have, location, level, salary range (if any). Return concise bullets."
     usr_p = f"LANG={lang}. Analyze this JD and return the structured summary:\n\n{raw[:12000]}"
-    out = call_llm(sys_p, usr_p)
+    out = call_llm(sys_p, usr_p, timeout=12)
     return jsonify({"ok": True, "jd_summary": out or (raw[:800] if raw else '')})
 
 @app.route('/api/jd/generate', methods=['POST'])
@@ -501,8 +522,18 @@ def api_jd_generate():
     need = data.get('need') or ''
     sys_p = "You are a hiring manager assistant. Write a clear, ATS-friendly JD with sections: About the Role, Responsibilities (6-10 bullets), Requirements (must-have vs nice-to-have), Location/Remote, Preferred background."
     usr_p = f"LANG={lang}. Based on this need, write a JD.\n\n{need[:6000]}"
-    out = call_llm(sys_p, usr_p, temperature=0.35, max_tokens=1400)
-    return jsonify({"ok": True, "jd": out or need})
+    jd = call_llm(sys_p, usr_p, temperature=0.35, max_tokens=1400, timeout=12)
+    if not jd.strip():
+        jd = f"""岗位职责
+- 基于需求：{need[:120]}…
+- 负责核心模块的设计与落地
+- 跨团队协作并对交付质量负责
+任职要求
+- 相关领域经验与可量化成果
+- 良好沟通与协作能力
+加分项
+- 行业头部公司/开源贡献优先"""
+    return jsonify({"ok": True, "jd": jd})
 
 # TopK 匹配
 @app.route('/api/match/topk', methods=['POST'])
@@ -514,35 +545,29 @@ def api_match_topk():
     out = topk_match(profile, jobs, k=k)
     return jsonify({"ok": True, "items": out, "k": k})
 
-# 候选人：上传 & 列表 & 匹配 JD
-@app.route('/api/candidates/upload', methods=['POST'])
-def api_candidates_upload():
+# 候选人画像静默入库（供企业端匹配使用）
+@app.route('/api/candidates/ingest', methods=['POST'])
+def api_candidates_ingest():
     _ensure_candidates_header()
-    name = request.form.get('name') or ''
-    email = request.form.get('email') or ''
-    tags = request.form.get('tags') or ''
-    file = request.files.get('file')
-    raw = extract_text_from_file(file) if file else (request.form.get('text') or '')
-    prof = summarize_resume(raw, lang=(request.form.get('lang') or 'zh'))
+    data = request.get_json(force=True, silent=True) or {}
+    profile = (data.get('profile') or '').strip()
+    if not profile:
+        return jsonify({"ok": False, "error": "empty profile"}), 400
     row = {
-        'id': str(uuid.uuid4()),
-        'name': name,
-        'email': email,
-        'tags': json.dumps([t.strip() for t in tags.split(',') if t.strip()], ensure_ascii=False),
-        'profile': prof,
-        'ts': datetime.utcnow().isoformat()+ 'Z'
+        'name': (data.get('name') or '').strip(),
+        'email': (data.get('email') or '').strip(),
+        'tags': json.dumps([], ensure_ascii=False),
+        'profile': profile,
+        'ts': int(time.time())
     }
     need_header = not os.path.exists(CANDIDATES_CSV) or os.path.getsize(CANDIDATES_CSV) == 0
     with open(CANDIDATES_CSV, 'a', newline='', encoding='utf-8') as f:
-        w = csv.DictWriter(f, fieldnames=['id','name','email','tags','profile','ts'])
+        w = csv.DictWriter(f, fieldnames=['name','email','tags','profile','ts'])
         if need_header: w.writeheader()
         w.writerow(row)
-    return jsonify({"ok": True, "item": row})
+    return jsonify({"ok": True})
 
-@app.route('/api/candidates/list')
-def api_candidates_list():
-    return jsonify({"ok": True, "items": read_candidates()})
-
+# 企业端：用 JD 匹配候选人（从静默入库的候选池）
 @app.route('/api/candidates/match', methods=['POST'])
 def api_candidates_match():
     data = request.get_json(force=True)
@@ -552,7 +577,8 @@ def api_candidates_match():
     scored = []
     for c in cands:
         res = match_with_llm(c.get('profile',''), jd_text, '')
-        scored.append((res['score'], c, res))
+        score = res.get('score', 0)
+        scored.append((score, c, res))
     scored.sort(key=lambda x: x[0], reverse=True)
     items = []
     for s, c, res in scored[:k]:
