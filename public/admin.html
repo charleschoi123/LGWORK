@@ -3,45 +3,107 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>LGWORK • Admin</title>
+<title>LGWORK • Admin（分片抓取 / 离线导入）</title>
 <style>
   :root{--pri:#0a66c2;--bg:#f3f2ef;--fg:#091e42;--muted:#5e6c84;--card:#fff;--border:#e0e0e0}
   body{font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--fg);margin:0}
-  .wrap{max-width:1080px;margin:0 auto;padding:24px}
+  .wrap{max-width:1100px;margin:0 auto;padding:24px}
   .card{background:var(--card);border:1px solid var(--border);border-radius:16px;padding:18px;margin:12px 0}
   .btn{background:var(--pri);color:#fff;border:0;border-radius:10px;padding:10px 16px;cursor:pointer}
   input,select{background:#fff;border:1px solid var(--border);border-radius:10px;padding:8px}
   .muted{color:var(--muted)}
+  table{width:100%;border-collapse:collapse}
+  th,td{border-bottom:1px solid var(--border);padding:8px;text-align:left;font-size:13px}
+  .badge{display:inline-block;padding:2px 8px;border:1px solid var(--border);border-radius:999px;font-size:12px;margin-right:6px}
+  .hidden{display:none}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <h2>职位抓取</h2>
-  <div class="card">
-    <button class="btn" id="btnFetch">一键抓取（Greenhouse + Lever）</button>
-    <div class="muted" id="hint" style="margin-top:6px">若未上传 <code>data/seed_sources.json</code> 或为空，系统会自动使用内置种子列表。</div>
-    <div style="margin-top:8px">最近更新：<span id="last">—</span>｜总职位：<b id="count">0</b></div>
+  <h2>职位抓取后台</h2>
+  <div id="guard" class="card hidden">
+    <div class="muted">此页面默认隐藏。要启用，请在浏览器控制台执行：<code>localStorage.admin=1; location.reload()</code> 或访问 <code>/public/admin.html?admin=1</code></div>
   </div>
 
-  <div class="card">
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <input id="q" placeholder="关键词"/>
-      <input id="loc" placeholder="地点"/>
-      <select id="remote"><option value="">远程不限</option><option value="true">只看远程</option><option value="false">排除远程</option></select>
-      <select id="zero"><option value="">零经验不限</option><option value="true">只看零经验友好</option><option value="false">排除零经验友好</option></select>
-      <button class="btn" id="btn">筛选</button>
+  <div id="main" class="hidden">
+    <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <label>来源</label>
+        <select id="source"><option value="both">Greenhouse + Lever</option><option value="greenhouse">仅 Greenhouse</option><option value="lever">仅 Lever</option></select>
+        <label>每片数量</label>
+        <select id="count"><option>10</option><option selected>20</option><option>30</option><option>40</option><option>50</option></select>
+        <button class="btn" id="start">开始分片抓取</button>
+        <button class="btn" id="stop" style="background:#455a64">停止</button>
+        <span class="muted">总职位：<b id="total">0</b></span>
+        <button class="btn" id="import">离线导入 jobs_seed.csv</button>
+      </div>
+      <div style="margin-top:8px">进度：<span id="prog">—</span></div>
     </div>
-    <div id="list" style="margin-top:10px"></div>
+
+    <div class="card">
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input id="q" placeholder="关键词"/>
+        <input id="loc" placeholder="地点"/>
+        <select id="remote"><option value="">远程不限</option><option value="true">只看远程</option><option value="false">排除远程</option></select>
+        <select id="zero"><option value="">零经验不限</option><option value="true">只看零经验友好</option><option value="false">排除零经验友好</option></select>
+        <button class="btn" id="btn">筛选</button>
+      </div>
+      <div id="list" style="margin-top:10px"></div>
+    </div>
+
+    <div class="card">
+      <b>抓取日志</b>
+      <table>
+        <thead><tr><th>#</th><th>类型</th><th>Key</th><th>Count</th></tr></thead>
+        <tbody id="logs"></tbody>
+      </table>
+    </div>
   </div>
 </div>
+
 <script>
 const $=s=>document.querySelector(s)
-$('#btnFetch').onclick=async()=>{const r=await fetch('/api/jobs/refresh',{method:'POST'});const d=await r.json();$('#count').textContent=d.count;$('#last').textContent=new Date().toLocaleString();load()}
+const guard=$('#guard'), main=$('#main')
+const isAdmin = (new URLSearchParams(location.search).get('admin')==='1') || localStorage.admin=='1'
+if(isAdmin){ main.classList.remove('hidden') } else { guard.classList.remove('hidden') }
+
+let stopFlag=false
+
+$('#start').onclick=async()=>{
+  stopFlag=false
+  $('#logs').innerHTML=''
+  let start=0, idx=1
+  const source=$('#source').value
+  const count=Number($('#count').value)
+  for(;;){
+    if(stopFlag) break
+    const r=await fetch(`/api/jobs/refresh_chunk?source=${source}&start=${start}&count=${count}`,{method:'POST'})
+    const d=await r.json()
+    $('#total').textContent=d.total_jobs||0
+    $('#prog').textContent=`${start} ~ ${start+count-1} / ${d.total_keys||'?'} (本片 ${d.processed} 条种子)`
+    ;(d.sources||[]).forEach(s=>{
+      const tr=document.createElement('tr')
+      tr.innerHTML=`<td>${idx++}</td><td>${s.type}</td><td>${s.key}</td><td>${s.count}</td>`
+      $('#logs').appendChild(tr)
+    })
+    if(d.done) break
+    start += count
+  }
+}
+$('#stop').onclick=()=>{stopFlag=true}
+
+$('#import').onclick=async()=>{
+  const r=await fetch('/api/jobs/import_static',{method:'POST'})
+  const d=await r.json(); alert(d.ok?`导入完成：${d.count} 条`:`导入失败：${d.error||'未知错误'}`)
+  load()
+}
+
 $('#btn').onclick=load
+
 async function load(){
   const p=new URLSearchParams({q:$('#q').value,location:$('#loc').value,remote:$('#remote').value,zero_exp:$('#zero').value,limit:200})
   const r=await fetch('/api/jobs/list?'+p.toString()); const d=await r.json()
-  $('#count').textContent=d.count
+  $('#total').textContent=d.count
   $('#list').innerHTML=(d.items||[]).map(x=>`<div style='border:1px solid var(--border);border-radius:12px;padding:12px;margin:8px 0;background:#fff'>
     <div><b>${esc(x.title)}</b> · ${esc(x.company)} <span class='muted'>${esc(x.location||'')}</span> ${x.remote?'· Remote':''}</div>
     <div class='muted' style='margin-top:4px;font-size:13px'>${esc((x.description||'').slice(0,200))}…</div>
